@@ -1,4 +1,4 @@
-# Inspectra – Mobil rutekontrol
+# Inspectra – Mobil kontrol
 <p align="center">
   <img src="src/banner.png" alt="Inspectra" width="840">
 </p>
