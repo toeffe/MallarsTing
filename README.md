@@ -1,4 +1,8 @@
 # Inspectra – Mobil rutekontrol
+<p align="center">
+  <img src="src/banner.png" alt="Inspectra" width="840">
+</p>
+
 
 Visuel, smartphone-først inspektionapp. Statisk site til **GitHub Pages**.
 
