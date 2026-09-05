@@ -1,5 +1,9 @@
 # Inspectra – Mobil rutekontrol
 
+Visuel, smartphone-først inspektionapp. Statisk site til **GitHub Pages**.
+
+**Live:** [kontrol.toeffe.uk](https://kontrol.toeffe.uk)
+
 ## Forløb
 
 1. **Log ind** – Arbejds-ID (kun localStorage)
@@ -28,7 +32,19 @@ npx serve .
 
 ## Udgiv (GitHub Pages)
 
-Push denne mappe → Settings → Pages → Deploy from branch / root.
+Push til `main` udløser workflowen `.github/workflows/pages.yml`.
+
+**Første gang – aktiver Pages i GitHub:**
+
+1. Åbn repo → **Settings** → **Pages**
+2. Under **Build and deployment** → **Source**: vælg **GitHub Actions**
+3. Push til `main` (eller kør workflowen manuelt under **Actions**)
+
+**Custom domain** (`kontrol.toeffe.uk`):
+
+- Filen `CNAME` i roden sætter domænet automatisk
+- DNS hos din udbyder: **CNAME** → `toeffe.github.io`
+- I Pages: slå **Enforce HTTPS** til, når certifikatet er klar
 
 ## Tilpas
 
