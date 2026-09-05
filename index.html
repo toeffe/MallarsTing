@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="da" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Inspectra – Rutekontrol</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Ctext x='16' y='22' text-anchor='middle' fill='%23fff' font-size='18' font-family='sans-serif'%3EI%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <div id="app">
+
+    <section id="view-login" class="view active">
+      <div class="login-card">
+        <div class="logo">
+          <div class="logo-mark">I</div>
+          <h1>Inspectra</h1>
+        </div>
+        <form id="login-form">
+          <label for="user-id">Arbejds-ID</label>
+          <input id="user-id" type="text" placeholder="Indtast dit arbejds-ID" autocomplete="username" required />
+          <p class="hint"></p>
+          <button type="submit" class="btn primary full">Log ind</button>
+        </form>
+        <button type="button" id="btn-theme-login" class="btn ghost full theme-toggle" style="margin-top:12px">
+          Skift tema
+        </button>
+      </div>
+    </section>
+
+    <section id="view-dashboard" class="view">
+      <header class="topbar">
+        <div>
+          <h2>Ruter</h2>
+          <p class="sub" id="user-label"></p>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" id="btn-theme" class="btn ghost icon theme-toggle" title="Skift tema">◐</button>
+          <button type="button" id="btn-logout" class="btn ghost icon" title="Log ud">⎋</button>
+        </div>
+      </header>
+      <div class="schedule-bar">
+        <span class="badge">Interval</span>
+        <select id="schedule-filter">
+          <option value="all">Alle ruter</option>
+          <option value="daily">Daglig</option>
+          <option value="weekly">Ugentlig</option>
+          <option value="monthly">Månedlig</option>
+          <option value="yearly">Årlig</option>
+        </select>
+      </div>
+      <div id="route-list" class="route-list"></div>
+    </section>
+
+    <section id="view-route" class="view">
+      <header class="topbar sticky">
+        <button type="button" id="btn-back-routes" class="btn ghost icon">←</button>
+        <div class="flex-1">
+          <h2 id="route-title">Rute</h2>
+          <p class="sub" id="route-progress">0 / 0 maskiner</p>
+        </div>
+        <button type="button" id="btn-finish-route" class="btn primary small" disabled>Afslut</button>
+      </header>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div id="machine-steps" class="machine-steps"></div>
+    </section>
+
+    <section id="view-machine" class="view">
+      <header class="topbar sticky">
+        <button type="button" id="btn-back-machines" class="btn ghost icon">←</button>
+        <div class="flex-1">
+          <h2 id="machine-title">Maskine</h2>
+          <p class="sub" id="machine-location"></p>
+        </div>
+      </header>
+      <div id="check-items" class="check-items"></div>
+      <div class="bottom-bar">
+        <button type="button" id="btn-save-machine" class="btn primary full">Gem og næste</button>
+      </div>
+    </section>
+
+    <section id="view-finish" class="view">
+      <header class="topbar">
+        <h2>Rute afsluttet</h2>
+      </header>
+      <div class="summary-card" id="summary-card"></div>
+      <div class="bottom-bar stacked">
+        <button type="button" id="btn-download-pdf" class="btn primary full">Download PDF-rapport</button>
+        <a id="btn-mailto" class="btn secondary full" href="#">Send via e-mail (PDF downloades først)</a>
+        <button type="button" id="btn-share" class="btn secondary full hidden">Del PDF</button>
+        <button type="button" id="btn-new-route" class="btn ghost full">Ny rute</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="photo-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Dokumentér med foto</h3>
+      <div class="photo-preview" id="photo-preview">
+        <span class="placeholder">Intet foto</span>
+      </div>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden" />
+      <div class="modal-actions">
+        <button type="button" id="btn-take-photo" class="btn secondary">Tag / vælg foto</button>
+        <button type="button" id="btn-photo-done" class="btn primary">Færdig</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
