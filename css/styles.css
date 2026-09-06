@@ -346,7 +346,75 @@ input:focus, select:focus, textarea:focus {
   border-radius: var(--radius);
   padding: 16px;
 }
-.check-item h4 { font-size: 0.95rem; margin-bottom: 12px; font-weight: 600; }
+.check-item h4 { font-size: 0.95rem; margin-bottom: 0; font-weight: 600; }
+
+.check-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.check-head h4 { flex: 1; min-width: 0; }
+.check-guide {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--bg);
+}
+
+.machine-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.machine-guide {
+  padding: 0 16px 12px;
+}
+.machine-guide img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--bg);
+}
+
+.draft-banner {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 8px 8px;
+}
+
+.guide-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+}
+.guide-lightbox.hidden { display: none; }
+.guide-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
 
 .status-row {
   display: grid;

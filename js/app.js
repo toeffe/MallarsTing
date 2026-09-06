@@ -1,7 +1,9 @@
-import { ROUTES, STATUS, STATUS_LABEL } from "./data.js";
+import { ROUTES as DATA_ROUTES, STATUS, STATUS_LABEL } from "../src/data.js";
+import { fileToJpegDataUrl, showLightbox } from "./image.js";
 
 const CATEGORY_KEY = "inspectra_category";
 const DONE_KEY = "inspectra_done";
+const DRAFT_KEY = "inspectra_builder_draft";
 
 const state = {
   userId: localStorage.getItem("inspectra_user") || "",
@@ -13,6 +15,25 @@ const state = {
   lastReport: null,
   lastPdf: null,
 };
+
+function getRoutes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "");
+    if (raw && Array.isArray(raw.routes) && raw.routes.length) return raw.routes;
+  } catch (err) {
+    /* ignore */
+  }
+  return DATA_ROUTES;
+}
+
+function usingBuilderDraft() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "");
+    return !!(raw && Array.isArray(raw.routes) && raw.routes.length);
+  } catch (err) {
+    return false;
+  }
+}
 
 function categoryLabel(cat) {
   return cat === "rengoring" ? "Rengøring" : "Maskiner";
@@ -194,15 +215,24 @@ function renderRoutes() {
     mapPanel.classList.toggle("hidden", state.category !== "rengoring");
   }
 
-  const filtered = ROUTES.filter((r) => {
+  const filtered = getRoutes().filter((r) => {
     const catOk = (r.category || "maskiner") === state.category;
     const schedOk = filter === "all" || r.schedule === filter;
     return catOk && schedOk;
   });
 
+  if (usingBuilderDraft()) {
+    const note = document.createElement("p");
+    note.className = "draft-banner";
+    note.textContent = "Viser udkast fra ruteværktøjet.";
+    list.appendChild(note);
+  }
+
   if (filtered.length === 0) {
-    list.innerHTML =
-      '<p style="color:var(--text-muted);text-align:center;padding:24px">Ingen ruter for denne plan.</p>';
+    const empty = document.createElement("p");
+    empty.style.cssText = "color:var(--text-muted);text-align:center;padding:24px";
+    empty.textContent = "Ingen ruter for denne plan.";
+    list.appendChild(empty);
     return;
   }
 
@@ -298,6 +328,14 @@ function renderMachineSteps() {
     statusEl.textContent = statusIcon;
     card.appendChild(statusEl);
 
+    if (machine.image) {
+      const thumb = document.createElement("img");
+      thumb.className = "machine-thumb";
+      thumb.src = machine.image;
+      thumb.alt = "";
+      card.appendChild(thumb);
+    }
+
     const info = document.createElement("div");
     info.className = "machine-info";
     const h3 = document.createElement("h3");
@@ -329,6 +367,20 @@ function openMachine(idx) {
   const machine = state.currentRoute.machines[idx];
   $("#machine-title").textContent = machine.name;
   $("#machine-location").textContent = machine.location;
+  const guide = $("#machine-guide");
+  if (guide) {
+    guide.innerHTML = "";
+    if (machine.image) {
+      const img = document.createElement("img");
+      img.src = machine.image;
+      img.alt = machine.name;
+      img.addEventListener("click", () => showLightbox(machine.image));
+      guide.appendChild(img);
+      guide.classList.remove("hidden");
+    } else {
+      guide.classList.add("hidden");
+    }
+  }
   renderCheckItems(machine);
   showView("view-machine");
 }
@@ -356,9 +408,20 @@ function renderCheckItems(machine) {
     item.className = "check-item";
     item.dataset.checkId = check.id;
 
+    const head = document.createElement("div");
+    head.className = "check-head";
+    if (check.image) {
+      const guideImg = document.createElement("img");
+      guideImg.className = "check-guide";
+      guideImg.src = check.image;
+      guideImg.alt = check.label;
+      guideImg.addEventListener("click", () => showLightbox(check.image));
+      head.appendChild(guideImg);
+    }
     const h4 = document.createElement("h4");
     h4.textContent = check.label;
-    item.appendChild(h4);
+    head.appendChild(h4);
+    item.appendChild(head);
 
     const statusRow = document.createElement("div");
     statusRow.className = "status-row";
@@ -532,54 +595,6 @@ function applyPhotoToUi(dataUrl) {
     newImg.src = dataUrl;
     thumb.replaceWith(newImg);
   }
-}
-
-async function fileToJpegDataUrl(file) {
-  const maxEdge = 1600;
-  const quality = 0.82;
-
-  try {
-    if (typeof createImageBitmap === "function") {
-      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-      const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
-      const w = Math.max(1, Math.round(bmp.width * scale));
-      const h = Math.max(1, Math.round(bmp.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
-      if (bmp.close) bmp.close();
-      return canvas.toDataURL("image/jpeg", quality);
-    }
-  } catch (err) {
-    /* fall through */
-  }
-
-  return new Promise(function (resolve, reject) {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = function () {
-      const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", quality));
-    };
-    img.onerror = function () {
-      URL.revokeObjectURL(url);
-      const reader = new FileReader();
-      reader.onload = function () {
-        resolve(reader.result);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    };
-    img.src = url;
-  });
 }
 
 function openPhotoModal(existingSrc) {

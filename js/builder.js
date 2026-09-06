@@ -1,4 +1,5 @@
 import { ROUTES, STATUS, STATUS_LABEL } from "./data.js";
+import { fileToJpegDataUrl } from "./image.js";
 
 const DRAFT_KEY = "inspectra_builder_draft";
 const THEME_KEY = "inspectra_theme";
@@ -74,9 +75,11 @@ function normalize(routes) {
       id: m.id || nextId("item"),
       name: m.name || "",
       location: m.location || "",
+      image: typeof m.image === "string" ? m.image : "",
       checks: (m.checks || []).map((c) => ({
         id: c.id || nextId("punkt"),
         label: c.label || "",
+        image: typeof c.image === "string" ? c.image : "",
       })),
     })),
   }));
@@ -93,7 +96,13 @@ function loadDraft() {
 }
 
 function saveDraft() {
-  localStorage.setItem(DRAFT_KEY, JSON.stringify({ routes: state.routes }));
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ routes: state.routes }));
+    return true;
+  } catch (err) {
+    toast("Udkast for stort – fjern et billede eller download data.js");
+    return false;
+  }
 }
 
 const state = {
@@ -124,7 +133,8 @@ function isBlankRoute(route) {
     (m) =>
       !m.name.trim() &&
       !m.location.trim() &&
-      m.checks.every((c) => !c.label.trim())
+      !m.image &&
+      m.checks.every((c) => !c.label.trim() && !c.image)
   );
 }
 
@@ -159,16 +169,22 @@ function withExportIds(routes) {
       const usedChecks = new Set();
       const checks = (m.checks || [])
         .filter((c) => c.label.trim())
-        .map((c) => ({
-          id: uniqueId(slugify(c.label), usedChecks),
-          label: c.label.trim(),
-        }));
-      return {
+        .map((c) => {
+          const row = {
+            id: uniqueId(slugify(c.label), usedChecks),
+            label: c.label.trim(),
+          };
+          if (c.image) row.image = c.image;
+          return row;
+        });
+      const machineOut = {
         id: mid,
         name: m.name.trim(),
         location: (m.location || "").trim(),
         checks,
       };
+      if (m.image) machineOut.image = m.image;
+      return machineOut;
     });
     const out = {
       id,
@@ -365,8 +381,25 @@ function emptyItem() {
     id: nextId("item"),
     name: "",
     location: "",
-    checks: [{ id: nextId("punkt"), label: "" }],
+    image: "",
+    checks: [{ id: nextId("punkt"), label: "", image: "" }],
   };
+}
+
+function photoPicker(src, inputAttrs, emptyText, sizeClass) {
+  const has = !!src;
+  const cls = "photo-pick" + (sizeClass ? " " + sizeClass : "") + (has ? " has-img" : "");
+  return `
+    <label class="${cls}">
+      <input type="file" accept="image/*" ${inputAttrs} />
+      ${has ? `<img src="${src}" alt="" />` : `<span>${esc(emptyText)}</span>`}
+    </label>`;
+}
+
+function rerenderEditor() {
+  const y = window.scrollY;
+  renderEditor();
+  window.scrollTo(0, y);
 }
 
 function renderEditor() {
@@ -396,13 +429,24 @@ function renderEditor() {
       const title = m.name.trim() || "Nyt " + noun;
       const titleClass = m.name.trim() ? "item-title" : "item-title empty";
       const checks = m.checks
-        .map(
-          (c, ci) => `
+        .map((c, ci) => {
+          const photo = photoPicker(
+            c.image,
+            `data-image="${idx}:${ci}"`,
+            "+",
+            "sm"
+          );
+          const clear = c.image
+            ? `<button type="button" class="btn ghost icon" data-clear-image="${idx}:${ci}" title="Fjern billede">⌫</button>`
+            : "";
+          return `
           <div class="check-row">
+            ${photo}
             <input type="text" data-item="${idx}" data-check="${ci}" value="${esc(c.label)}" placeholder="Kontrolpunkt" />
+            ${clear}
             <button type="button" class="btn ghost icon" data-del-check="${idx}:${ci}" title="Fjern punkt">×</button>
-          </div>`
-        )
+          </div>`;
+        })
         .join("");
       const chips = presets
         .map(
@@ -432,8 +476,13 @@ function renderEditor() {
                 <input type="text" data-item="${idx}" data-item-field="location" value="${esc(m.location)}" placeholder="${cleaning ? "Fx Blå zone · venstre linje" : "Fx Hal A · Zone 1"}" />
               </div>
             </div>
+            <div class="field">
+              <label>Billede (valgfrit)</label>
+              ${photoPicker(m.image, `data-item-image="${idx}"`, "Tilføj billede")}
+              ${m.image ? `<button type="button" class="btn ghost small" data-clear-item-image="${idx}">Fjern billede</button>` : ""}
+            </div>
             <div>
-              <p class="checks-label">Kontrolpunkter</p>
+              <p class="checks-label">Kontrolpunkter · billede vises i appen</p>
               ${checks}
               <button type="button" class="btn secondary small" data-add-check="${idx}">+ Punkt</button>
               <div class="presets">${chips}</div>
@@ -568,7 +617,7 @@ function deleteItem(idx) {
 function addCheck(idx) {
   const route = currentRoute();
   if (!route || !route.machines[idx]) return;
-  route.machines[idx].checks.push({ id: nextId("punkt"), label: "" });
+  route.machines[idx].checks.push({ id: nextId("punkt"), label: "", image: "" });
   persist();
   renderEditor();
   const inputs = $$('#editor-body input[data-check]');
@@ -594,7 +643,7 @@ function addPreset(itemIdx, label) {
   if (exists) return;
   const empty = item.checks.find((c) => !c.label.trim());
   if (empty) empty.label = label;
-  else item.checks.push({ id: nextId("punkt"), label });
+  else item.checks.push({ id: nextId("punkt"), label, image: "" });
   persist();
   renderEditor();
 }
@@ -624,7 +673,7 @@ $("#editor-body").addEventListener(
 );
 
 $("#editor-body").addEventListener("click", (e) => {
-  const t = e.target.closest("[data-move], [data-del-item], [data-add-check], [data-del-check], [data-preset], #btn-add-item, #btn-delete-route");
+  const t = e.target.closest("[data-move], [data-del-item], [data-add-check], [data-del-check], [data-preset], [data-clear-image], [data-clear-item-image], #btn-add-item, #btn-delete-route");
   if (!t) return;
 
   if (t.id === "btn-add-item") {
@@ -660,6 +709,25 @@ $("#editor-body").addEventListener("click", (e) => {
   }
   if (t.dataset.preset !== undefined) {
     addPreset(Number(t.dataset.preset), t.dataset.label);
+    return;
+  }
+  if (t.dataset.clearImage) {
+    const [i, c] = t.dataset.clearImage.split(":").map(Number);
+    const item = currentRoute() && currentRoute().machines[i];
+    if (item && item.checks[c]) {
+      item.checks[c].image = "";
+      persist();
+      rerenderEditor();
+    }
+    return;
+  }
+  if (t.dataset.clearItemImage !== undefined) {
+    const item = currentRoute() && currentRoute().machines[Number(t.dataset.clearItemImage)];
+    if (item) {
+      item.image = "";
+      persist();
+      rerenderEditor();
+    }
   }
 });
 
@@ -701,10 +769,45 @@ $("#editor-body").addEventListener("input", (e) => {
   }
 });
 
-$("#editor-body").addEventListener("change", (e) => {
+$("#editor-body").addEventListener("change", async (e) => {
   const el = e.target;
   const route = currentRoute();
-  if (!route || !el.dataset.field) return;
+  if (!route) return;
+
+  if (el.matches('input[type="file"][data-image]')) {
+    const file = el.files && el.files[0];
+    el.value = "";
+    if (!file) return;
+    const [itemIdx, checkIdx] = el.dataset.image.split(":").map(Number);
+    const check = route.machines[itemIdx] && route.machines[itemIdx].checks[checkIdx];
+    if (!check) return;
+    try {
+      check.image = await fileToJpegDataUrl(file, 880, 0.7);
+      persist();
+      rerenderEditor();
+    } catch (err) {
+      toast("Kunne ikke læse billedet");
+    }
+    return;
+  }
+
+  if (el.matches('input[type="file"][data-item-image]')) {
+    const file = el.files && el.files[0];
+    el.value = "";
+    if (!file) return;
+    const item = route.machines[Number(el.dataset.itemImage)];
+    if (!item) return;
+    try {
+      item.image = await fileToJpegDataUrl(file, 960, 0.72);
+      persist();
+      rerenderEditor();
+    } catch (err) {
+      toast("Kunne ikke læse billedet");
+    }
+    return;
+  }
+
+  if (!el.dataset.field) return;
   route[el.dataset.field] = el.value;
   persist();
 });

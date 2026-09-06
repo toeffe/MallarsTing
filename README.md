@@ -98,6 +98,7 @@ css/styles.css      # Tema, layout, statusknapper
 css/builder.css     # Desktop-layout til værktøjet
 js/app.js           # Flow, PDF, share, done-status
 js/builder.js       # Ruteværktøj
+js/image.js         # Billedkomprimering + lightbox
 js/data.js          # Ruter, maskiner/områder, statuskoder
 src/kort.png        # Plantegning (Rengøring)
 src/banner.png      # README-banner
@@ -112,7 +113,9 @@ CNAME               # kontrol.toeffe.uk
 3. **Download data.js** (eller kopiér) og erstat [`js/data.js`](js/data.js).
 4. Udgiv (push til `main`).
 
-Udkast gemmes i browseren. **Gendan fra data.js** kasserer udkastet. Statuskoder røres ikke.
+Udkast gemmes i browseren og vises automatisk i inspektionsappen på samme enhed. **Gendan fra data.js** kasserer udkastet.
+
+Valgfrit **billede** på maskine/område og på hvert kontrolpunkt (`image`). Vises i appen som vejledning. Statuskoder røres ikke.
 
 Hver rute i `data.js`:
 
@@ -129,8 +132,9 @@ Hver rute i `data.js`:
       id: "C-BL-1",
       name: "Vaskelinje vest",
       location: "Blå zone · venstre linje",
+      image: "data:image/jpeg;base64,…", // valgfri
       checks: [
-        { id: "floor", label: "Gulv og afløb" },
+        { id: "floor", label: "Gulv og afløb", image: "…" },
       ],
     },
   ],
