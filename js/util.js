@@ -6,6 +6,48 @@ export function $$(sel, root) {
   return Array.from((root || document).querySelectorAll(sel));
 }
 
+export function enableDragScroll(el) {
+  if (!el || el.dataset.dragScrollBound) return;
+  el.dataset.dragScrollBound = "1";
+  let isDown = false;
+  let dragged = false;
+  let startX = 0;
+  let startScroll = 0;
+
+  el.addEventListener("mousedown", (e) => {
+    isDown = true;
+    dragged = false;
+    startX = e.pageX;
+    startScroll = el.scrollLeft;
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!isDown) return;
+    e.preventDefault();
+    const dx = e.pageX - startX;
+    if (Math.abs(dx) > 3) {
+      dragged = true;
+      el.classList.add("dragging");
+    }
+    el.scrollLeft = startScroll - dx;
+  });
+  window.addEventListener("mouseup", () => {
+    isDown = false;
+    el.classList.remove("dragging");
+  });
+  el.addEventListener(
+    "click",
+    (e) => {
+      if (dragged) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragged = false;
+      }
+    },
+    true
+  );
+}
+
 export function esc(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
