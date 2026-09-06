@@ -183,12 +183,14 @@ function updateExportBar() {
 }
 
 /* ── List view ─────────────────────────────────────────────── */
+const BUILTIN_CATEGORIES = ["maskiner", "rengoring"];
+
 function templateCategories() {
   const set = new Set(state.templates.map((t) => t.category || "andet"));
-  set.add("maskiner");
-  set.add("rengoring");
+  BUILTIN_CATEGORIES.forEach((c) => set.add(c));
+  store.getCategories().forEach((c) => set.add(c));
   if (state.category) set.add(state.category);
-  const order = ["maskiner", "rengoring"];
+  const order = BUILTIN_CATEGORIES;
   const list = Array.from(set);
   list.sort((a, b) => {
     const ia = order.indexOf(a);
@@ -203,6 +205,9 @@ function renderCategoryBar() {
   const bar = $("#category-bar");
   bar.innerHTML = "";
   templateCategories().forEach((cat) => {
+    const wrap = document.createElement("span");
+    wrap.className = "category-btn-wrap";
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "category-btn" + (state.category === cat ? " active" : "");
@@ -211,7 +216,31 @@ function renderCategoryBar() {
       state.category = cat;
       renderList();
     });
-    bar.appendChild(btn);
+    wrap.appendChild(btn);
+
+    if (!BUILTIN_CATEGORIES.includes(cat)) {
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "category-btn-delete";
+      delBtn.title = "Slet kategori";
+      delBtn.setAttribute("aria-label", "Slet kategori " + categoryLabel(cat));
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const inUse = state.templates.some((t) => (t.category || "andet") === cat);
+        if (inUse) {
+          alert("Kategorien kan ikke slettes, så længe den indeholder kontroller.");
+          return;
+        }
+        if (!confirm('Slet kategorien "' + categoryLabel(cat) + '"?')) return;
+        store.deleteCategory(cat);
+        if (state.category === cat) state.category = "maskiner";
+        renderList();
+      });
+      wrap.appendChild(delBtn);
+    }
+
+    bar.appendChild(wrap);
   });
   const addBtn = document.createElement("button");
   addBtn.type = "button";
@@ -221,7 +250,9 @@ function renderCategoryBar() {
   addBtn.addEventListener("click", () => {
     const name = prompt("Navn på ny kategori (fx Sikkerhed):");
     if (!name || !name.trim()) return;
-    state.category = slugify(name);
+    const slug = slugify(name);
+    store.addCategory(slug);
+    state.category = slug;
     renderList();
   });
   bar.appendChild(addBtn);

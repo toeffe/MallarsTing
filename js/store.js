@@ -3,6 +3,7 @@ export const KEYS = {
   ANSWERSETS: "inspectra_answersets",
   HISTORY: "inspectra_history",
   DONE: "inspectra_done",
+  CATEGORIES: "inspectra_categories",
 };
 
 function readMap(key) {
@@ -109,6 +110,43 @@ export function addHistoryEntry(entry) {
   const map = getHistory();
   map[entry.id] = entry;
   return writeMap(KEYS.HISTORY, map);
+}
+
+/* ── categories ────────────────────────────────────────── */
+
+function readList(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeList(key, list) {
+  try {
+    localStorage.setItem(key, JSON.stringify(list));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export function getCategories() {
+  return readList(KEYS.CATEGORIES);
+}
+
+export function addCategory(slug) {
+  const list = getCategories();
+  if (!list.includes(slug)) {
+    list.push(slug);
+    writeList(KEYS.CATEGORIES, list);
+  }
+}
+
+export function deleteCategory(slug) {
+  const list = getCategories().filter((c) => c !== slug);
+  return writeList(KEYS.CATEGORIES, list);
 }
 
 /* ── "done this period" flags ─────────────────────────── */
