@@ -386,13 +386,20 @@ function emptyItem() {
   };
 }
 
+const UPLOAD_ICON =
+  '<svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>';
+
 function photoPicker(src, inputAttrs, emptyText, sizeClass) {
   const has = !!src;
   const cls = "photo-pick" + (sizeClass ? " " + sizeClass : "") + (has ? " has-img" : "");
+  const empty =
+    sizeClass === "sm"
+      ? UPLOAD_ICON
+      : UPLOAD_ICON + '<span class="photo-pick-label">' + esc(emptyText) + "</span>";
   return `
-    <label class="${cls}">
+    <label class="${cls}" title="Upload billede">
       <input type="file" accept="image/*" ${inputAttrs} />
-      ${has ? `<img src="${src}" alt="" />` : `<span>${esc(emptyText)}</span>`}
+      ${has ? `<img src="${src}" alt="" />` : `<span class="photo-pick-empty">${empty}</span>`}
     </label>`;
 }
 
@@ -433,7 +440,7 @@ function renderEditor() {
           const photo = photoPicker(
             c.image,
             `data-image="${idx}:${ci}"`,
-            "+",
+            "Upload",
             "sm"
           );
           const clear = c.image
