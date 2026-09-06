@@ -1,5 +1,5 @@
-import { ROUTES, STATUS, STATUS_LABEL } from "./data.js";
-import { fileToJpegDataUrl } from "./image.js";
+import { ROUTES, STATUS, STATUS_LABEL } from "../src/data.js";
+import { fileToJpegBlob } from "./image.js";
 
 const DRAFT_KEY = "inspectra_builder_draft";
 const THEME_KEY = "inspectra_theme";
@@ -62,6 +62,16 @@ function uniqueId(base, used) {
   return id;
 }
 
+function srcImagePath(value) {
+  if (typeof value !== "string" || !value) return "";
+  if (value.startsWith("data:")) return "";
+  if (value.startsWith("src/")) return value;
+  if (!value.includes("://") && !value.includes("\\")) {
+    return value.startsWith("/") ? value.slice(1) : "src/" + value;
+  }
+  return "";
+}
+
 function normalize(routes) {
   if (!Array.isArray(routes)) return [];
   return routes.map((r) => ({
@@ -75,11 +85,11 @@ function normalize(routes) {
       id: m.id || nextId("item"),
       name: m.name || "",
       location: m.location || "",
-      image: typeof m.image === "string" ? m.image : "",
+      image: srcImagePath(m.image),
       checks: (m.checks || []).map((c) => ({
         id: c.id || nextId("punkt"),
         label: c.label || "",
-        image: typeof c.image === "string" ? c.image : "",
+        image: srcImagePath(c.image),
       })),
     })),
   }));
@@ -87,8 +97,13 @@ function normalize(routes) {
 
 function loadDraft() {
   try {
-    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "");
-    if (raw && Array.isArray(raw.routes)) return normalize(raw.routes);
+    const raw = localStorage.getItem(DRAFT_KEY) || "";
+    if (raw.includes("data:image")) {
+      localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    const parsed = JSON.parse(raw || "");
+    if (parsed && Array.isArray(parsed.routes)) return normalize(parsed.routes);
   } catch (err) {
     /* ignore */
   }
@@ -174,7 +189,8 @@ function withExportIds(routes) {
             id: uniqueId(slugify(c.label), usedChecks),
             label: c.label.trim(),
           };
-          if (c.image) row.image = c.image;
+          const img = srcImagePath(c.image);
+          if (img) row.image = img;
           return row;
         });
       const machineOut = {
@@ -183,7 +199,8 @@ function withExportIds(routes) {
         location: (m.location || "").trim(),
         checks,
       };
-      if (m.image) machineOut.image = m.image;
+      const machineImg = srcImagePath(m.image);
+      if (machineImg) machineOut.image = machineImg;
       return machineOut;
     });
     const out = {
@@ -542,6 +559,110 @@ function renderEditor() {
   `;
 }
 
+const IDB_NAME = "inspectra-builder";
+const IDB_STORE = "handles";
+
+function openHandleDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function loadSrcHandle() {
+  try {
+    const db = await openHandleDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get("src");
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    return null;
+  }
+}
+
+async function saveSrcHandle(handle) {
+  const db = await openHandleDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(handle, "src");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function ensureSrcDir(forcePick) {
+  if (!window.showDirectoryPicker) return null;
+  let handle = forcePick ? null : await loadSrcHandle();
+  if (handle) {
+    const q = await handle.queryPermission({ mode: "readwrite" });
+    if (q === "granted") return handle;
+    const next = await handle.requestPermission({ mode: "readwrite" });
+    if (next === "granted") return handle;
+  }
+  handle = await window.showDirectoryPicker({
+    id: "inspectra-src",
+    mode: "readwrite",
+  });
+  await saveSrcHandle(handle);
+  return handle;
+}
+
+async function uniqueSrcName(dir, filename) {
+  const match = filename.match(/^(.*)\.([^.]+)$/);
+  const base = match ? match[1] : filename;
+  const ext = match ? match[2] : "jpg";
+  let name = filename;
+  let n = 2;
+  while (true) {
+    try {
+      await dir.getFileHandle(name);
+      name = base + "-" + n + "." + ext;
+      n++;
+    } catch (err) {
+      return name;
+    }
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+async function saveGuideImage(file, nameHint, existingPath) {
+  const blob = await fileToJpegBlob(file, 1280, 0.82);
+  let filename =
+    existingPath && existingPath.startsWith("src/") && existingPath.endsWith(".jpg")
+      ? existingPath.slice(4)
+      : slugify(nameHint) + ".jpg";
+  const dir = await ensureSrcDir(false);
+  if (dir) {
+    if (!(existingPath && existingPath.endsWith("/" + filename))) {
+      filename = await uniqueSrcName(dir, filename);
+    }
+    const fileHandle = await dir.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return "src/" + filename;
+  }
+  downloadBlob(blob, filename);
+  toast("Gem " + filename + " i mappen src/");
+  return "src/" + filename;
+}
+
 function persist() {
   saveDraft();
   updateExportBar();
@@ -789,11 +910,17 @@ $("#editor-body").addEventListener("change", async (e) => {
     const check = route.machines[itemIdx] && route.machines[itemIdx].checks[checkIdx];
     if (!check) return;
     try {
-      check.image = await fileToJpegDataUrl(file, 880, 0.7);
+      const item = route.machines[itemIdx];
+      const hint =
+        (item && item.name ? item.name + "-" : "") +
+        (check.label || "punkt");
+      check.image = await saveGuideImage(file, hint, check.image);
       persist();
       rerenderEditor();
+      toast("Gemt i src/");
     } catch (err) {
-      toast("Kunne ikke læse billedet");
+      if (err && err.name === "AbortError") return;
+      toast("Kunne ikke gemme billedet i src/");
     }
     return;
   }
@@ -805,11 +932,13 @@ $("#editor-body").addEventListener("change", async (e) => {
     const item = route.machines[Number(el.dataset.itemImage)];
     if (!item) return;
     try {
-      item.image = await fileToJpegDataUrl(file, 960, 0.72);
+      item.image = await saveGuideImage(file, item.name || "maskine", item.image);
       persist();
       rerenderEditor();
+      toast("Gemt i src/");
     } catch (err) {
-      toast("Kunne ikke læse billedet");
+      if (err && err.name === "AbortError") return;
+      toast("Kunne ikke gemme billedet i src/");
     }
     return;
   }
@@ -817,6 +946,20 @@ $("#editor-body").addEventListener("change", async (e) => {
   if (!el.dataset.field) return;
   route[el.dataset.field] = el.value;
   persist();
+});
+
+$("#btn-src-dir").addEventListener("click", async () => {
+  try {
+    const dir = await ensureSrcDir(true);
+    if (!dir) {
+      toast("Denne browser kan ikke skrive til src – billeder downloades i stedet");
+      return;
+    }
+    toast("Mappe valgt: " + dir.name);
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+    toast("Kunne ikke vælge mappen");
+  }
 });
 
 $("#btn-restore").addEventListener("click", () => {
@@ -857,7 +1000,7 @@ $("#btn-download").addEventListener("click", () => {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  toast("Downloadet – erstat js/data.js");
+  toast("Downloadet – erstat src/data.js");
 });
 
 showList();

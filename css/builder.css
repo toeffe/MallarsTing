@@ -267,7 +267,8 @@
   align-items: center;
 }
 .export-actions .btn { flex: 1 1 auto; }
-.export-actions #btn-restore { flex: 1 1 100%; }
+.export-actions #btn-restore,
+.export-actions #btn-src-dir { flex: 1 1 100%; }
 
 .toast {
   position: fixed;
@@ -285,7 +286,8 @@
 }
 
 @media (min-width: 520px) {
-  .export-actions #btn-restore { flex: 0 1 auto; }
+  .export-actions #btn-restore,
+  .export-actions #btn-src-dir { flex: 0 1 auto; }
 }
 
 @media (min-width: 761px) {

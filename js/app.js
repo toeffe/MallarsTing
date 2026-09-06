@@ -18,8 +18,12 @@ const state = {
 
 function getRoutes() {
   try {
-    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "");
-    if (raw && Array.isArray(raw.routes) && raw.routes.length) return raw.routes;
+    const raw = localStorage.getItem(DRAFT_KEY) || "";
+    if (raw.includes("data:image")) return DATA_ROUTES;
+    const parsed = JSON.parse(raw || "");
+    if (parsed && Array.isArray(parsed.routes) && parsed.routes.length) {
+      return parsed.routes;
+    }
   } catch (err) {
     /* ignore */
   }
@@ -28,8 +32,10 @@ function getRoutes() {
 
 function usingBuilderDraft() {
   try {
-    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "");
-    return !!(raw && Array.isArray(raw.routes) && raw.routes.length);
+    const raw = localStorage.getItem(DRAFT_KEY) || "";
+    if (!raw || raw.includes("data:image")) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed && Array.isArray(parsed.routes) && parsed.routes.length);
   } catch (err) {
     return false;
   }

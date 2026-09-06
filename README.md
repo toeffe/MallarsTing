@@ -99,7 +99,9 @@ css/builder.css     # Desktop-layout til værktøjet
 js/app.js           # Flow, PDF, share, done-status
 js/builder.js       # Ruteværktøj
 js/image.js         # Billedkomprimering + lightbox
-js/data.js          # Ruter, maskiner/områder, statuskoder
+js/data.js          # Re-eksport af src/data.js
+src/data.js         # Ruter, maskiner/områder, statuskoder
+src/*.jpg           # Kontrolpunkt-billeder
 src/kort.png        # Plantegning (Rengøring)
 src/banner.png      # README-banner
 CNAME               # kontrol.toeffe.uk
@@ -109,13 +111,14 @@ CNAME               # kontrol.toeffe.uk
 ## Tilpas data
 
 1. Åbn [builder.html](builder.html) (live: [kontrol.toeffe.uk/builder.html](https://kontrol.toeffe.uk/builder.html)).
-2. Byg **Maskiner**-ruter og **Rengøring**-zoner.
-3. **Download data.js** (eller kopiér) og erstat [`js/data.js`](js/data.js).
-4. Udgiv (push til `main`).
+2. **Vælg src-mappe** (projektets `src/`-folder) én gang, så billeder kan gemmes.
+3. Byg **Maskiner**-ruter og **Rengøring**-zoner. Billeder lander som filer i `src/`.
+4. **Download data.js** og erstat [`src/data.js`](src/data.js).
+5. Udgiv (push til `main`).
 
-Udkast gemmes i browseren og vises automatisk i inspektionsappen på samme enhed. **Gendan fra data.js** kasserer udkastet.
+Udkast gemmes i browseren (uden billeddata). **Gendan fra data.js** kasserer udkastet.
 
-Valgfrit **billede** på maskine/område og på hvert kontrolpunkt (`image`). Vises i appen som vejledning. Statuskoder røres ikke.
+Valgfrit **billede** på maskine/område og kontrolpunkt: sti som `src/navn.jpg` (ikke base64). Statuskoder røres ikke.
 
 Hver rute i `data.js`:
 
@@ -132,9 +135,9 @@ Hver rute i `data.js`:
       id: "C-BL-1",
       name: "Vaskelinje vest",
       location: "Blå zone · venstre linje",
-      image: "data:image/jpeg;base64,…", // valgfri
+      image: "src/vaskelinje-vest.jpg", // valgfri, fil i src/
       checks: [
-        { id: "floor", label: "Gulv og afløb", image: "…" },
+        { id: "floor", label: "Gulv og afløb", image: "src/gulv-og-afloeb.jpg" },
       ],
     },
   ],
