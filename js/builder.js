@@ -11,6 +11,7 @@ import {
   describeInstalls,
 } from "./inspectra-io.js";
 import { initUpdateChecker, dismissUpdate } from "./update-checker.js";
+import { alertDialog, confirmDialog, promptDialog } from "./dialog.js";
 
 const SCHEDULE_LABEL = {
   daily: "Daglig",
@@ -225,14 +226,14 @@ function renderCategoryBar() {
       delBtn.title = "Slet kategori";
       delBtn.setAttribute("aria-label", "Slet kategori " + categoryLabel(cat));
       delBtn.textContent = "×";
-      delBtn.addEventListener("click", (e) => {
+      delBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const inUse = state.templates.some((t) => (t.category || "andet") === cat);
         if (inUse) {
-          alert("Kategorien kan ikke slettes, så længe den indeholder kontroller.");
+          await alertDialog("Kategorien kan ikke slettes, så længe den indeholder kontroller.");
           return;
         }
-        if (!confirm('Slet kategorien "' + categoryLabel(cat) + '"?')) return;
+        if (!(await confirmDialog('Slet kategorien "' + categoryLabel(cat) + '"?'))) return;
         store.deleteCategory(cat);
         if (state.category === cat) state.category = "maskiner";
         renderList();
@@ -247,8 +248,8 @@ function renderCategoryBar() {
   addBtn.className = "category-btn";
   addBtn.textContent = "+";
   addBtn.title = "Ny kategori";
-  addBtn.addEventListener("click", () => {
-    const name = prompt("Navn på ny kategori (fx Sikkerhed):");
+  addBtn.addEventListener("click", async () => {
+    const name = await promptDialog("Navn på ny kategori (fx Sikkerhed):");
     if (!name || !name.trim()) return;
     const slug = slugify(name);
     store.addCategory(slug);
@@ -641,25 +642,25 @@ function backToList() {
   showList();
 }
 
-function deleteTemplate() {
+async function deleteTemplate() {
   const template = currentTemplate();
   if (!template) return;
-  if (!confirm('Slet "' + (template.name.trim() || template.referenceId) + '"?')) return;
+  if (!(await confirmDialog('Slet "' + (template.name.trim() || template.referenceId) + '"?'))) return;
   state.templates = state.templates.filter((t) => t.referenceId !== template.referenceId);
   store.deleteTemplate(template.referenceId);
   persist();
   showList();
 }
 
-function duplicateTemplate() {
+async function duplicateTemplate() {
   const template = currentTemplate();
   if (!template) return;
   const used = new Set(state.templates.map((t) => t.referenceId));
-  let newRef = prompt("Ny Reference-ID for kopien:", template.referenceId + "-kopi");
+  let newRef = await promptDialog("Ny Reference-ID for kopien:", template.referenceId + "-kopi");
   if (newRef === null) return;
   newRef = newRef.trim();
   if (!newRef || used.has(newRef)) {
-    alert("Reference-ID mangler eller er allerede i brug.");
+    await alertDialog("Reference-ID mangler eller er allerede i brug.");
     return;
   }
   const copy = clone(template);
@@ -698,12 +699,12 @@ function snapshotEmbeddedAnswerSets(template) {
   template.embeddedAnswerSets = snapshot;
 }
 
-function exportTemplate() {
+async function exportTemplate() {
   const template = currentTemplate();
   if (!template) return;
   const errors = validateTemplate(template);
   if (errors.length) {
-    alert("Kan ikke eksportere endnu:\n- " + errors.join("\n- "));
+    await alertDialog("Kan ikke eksportere endnu:\n- " + errors.join("\n- "));
     return;
   }
   snapshotEmbeddedAnswerSets(template);
@@ -740,12 +741,12 @@ function reorderGroup(from, to) {
   rerenderEditor();
 }
 
-function deleteGroup(idx) {
+async function deleteGroup(idx) {
   const template = currentTemplate();
   if (!template) return;
   const group = template.groups[idx];
   const label = (group && group.name.trim()) || itemNoun(template, false);
-  if (!confirm("Slet " + label + "?")) return;
+  if (!(await confirmDialog("Slet " + label + "?"))) return;
   template.groups.splice(idx, 1);
   touch(template);
   persist();
@@ -783,11 +784,11 @@ function reorderPoint(gIdx, from, to) {
   rerenderEditor();
 }
 
-function deletePoint(gIdx, pIdx) {
+async function deletePoint(gIdx, pIdx) {
   const template = currentTemplate();
   const group = template && template.groups[gIdx];
   if (!group) return;
-  if (!confirm("Slet kontrolpunkt?")) return;
+  if (!(await confirmDialog("Slet kontrolpunkt?"))) return;
   group.points.splice(pIdx, 1);
   touch(template);
   persist();
@@ -1100,18 +1101,18 @@ function showExportPickerModal() {
   if (selectNone) selectNone.addEventListener("click", () => checkboxes().forEach((cb) => (cb.checked = false)));
 
   $("#export-cancel").addEventListener("click", () => $("#export-modal").classList.add("hidden"));
-  $("#export-confirm").addEventListener("click", () => {
+  $("#export-confirm").addEventListener("click", async () => {
     const pickedIds = checkboxes()
       .filter((cb) => cb.checked)
       .map((cb) => cb.dataset.exportPick);
     if (!pickedIds.length) {
-      alert("Vælg mindst én kontrol.");
+      await alertDialog("Vælg mindst én kontrol.");
       return;
     }
     const picked = sorted.filter((t) => pickedIds.includes(t.referenceId));
     const invalid = picked.filter((t) => validateTemplate(t).length);
     if (invalid.length) {
-      alert(
+      await alertDialog(
         "Kan ikke eksportere - følgende har fejl:\n- " +
           invalid.map((t) => t.name.trim() || t.referenceId).join("\n- ")
       );
@@ -1150,7 +1151,7 @@ $("#import-template-file").addEventListener("change", async (e) => {
     const parsed = await readInspectraFile(file);
     showImportConflictModal(describeInstalls(parsed.templates));
   } catch (err) {
-    alert(err.message || "Kunne ikke importere filen.");
+    await alertDialog(err.message || "Kunne ikke importere filen.");
   }
 });
 
@@ -1353,7 +1354,7 @@ function stopAutoScroll() {
   autoScrollY = null;
 }
 
-$("#editor-body").addEventListener("click", (e) => {
+$("#editor-body").addEventListener("click", async (e) => {
   const t = e.target.closest("button");
   if (!t) return;
 
@@ -1410,14 +1411,14 @@ $("#editor-body").addEventListener("click", (e) => {
     const [gIdx, pIdx, rIdx, fIdx] = t.dataset.editAnswerset.split(":").map(Number);
     const { field } = getField(gIdx, pIdx, rIdx, fIdx);
     if (!field || !field.config.answerSetId) {
-      alert("Vælg et svarmuligheds-sæt først.");
+      await alertDialog("Vælg et svarmuligheds-sæt først.");
       return;
     }
     return openAnswerSetModal(field.config.answerSetId);
   }
   if (t.dataset.newAnswerset) {
     const loc = t.dataset.newAnswerset;
-    const name = prompt("Navn på nyt svarmuligheds-sæt:");
+    const name = await promptDialog("Navn på nyt svarmuligheds-sæt:");
     if (!name || !name.trim()) return;
     const id = uniqueId(slugify(name), new Set(Object.keys(state.answerSets)));
     const set = { id, name: name.trim(), options: [], defaultOptionIds: [] };

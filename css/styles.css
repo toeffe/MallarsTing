@@ -599,6 +599,8 @@ input:focus, select:focus, textarea:focus {
 .photo-preview .placeholder { color: var(--text-muted); font-size: 0.9rem; }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions .btn { flex: 1; }
+.dialog-message { margin-bottom: 16px; white-space: pre-line; }
+#dialog-modal-body input[type="text"] { margin-bottom: 16px; }
 .photo-actions { flex-wrap: wrap; }
 .photo-actions .file-btn { flex: 1 1 calc(50% - 5px); }
 .photo-actions #btn-photo-done { flex: 1 1 100%; }
