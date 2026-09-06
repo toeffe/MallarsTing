@@ -19,6 +19,13 @@ const SCHEDULE_LABEL = {
   yearly: "Årlig",
 };
 
+const SCHEDULE_ORDER = ["daily", "weekly", "monthly", "yearly"];
+
+function scheduleSortIndex(schedule) {
+  const i = SCHEDULE_ORDER.indexOf(schedule);
+  return i === -1 ? SCHEDULE_ORDER.length : i;
+}
+
 const state = {
   category: "maskiner",
   templates: [],
@@ -237,7 +244,18 @@ function renderList() {
     return;
   }
 
+  filtered.sort((a, b) => scheduleSortIndex(a.schedule) - scheduleSortIndex(b.schedule));
+
+  let currentSchedule = null;
   filtered.forEach((template) => {
+    if (template.schedule !== currentSchedule) {
+      currentSchedule = template.schedule;
+      const heading = document.createElement("h4");
+      heading.className = "route-group-heading";
+      heading.textContent = SCHEDULE_LABEL[currentSchedule] || currentSchedule;
+      list.appendChild(heading);
+    }
+
     const card = document.createElement("div");
     card.className = "route-card";
     card.dataset.id = template.referenceId;
