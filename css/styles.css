@@ -179,11 +179,12 @@ input:focus, select:focus, textarea:focus {
 /* ── Category bar ──────────────────────────────────── */
 .category-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 16px 12px;
 }
 .category-btn {
-  flex: 1;
+  flex: 0 1 auto;
   font-family: inherit;
   font-weight: 600;
   font-size: 0.9rem;
