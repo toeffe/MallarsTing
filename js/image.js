@@ -1,6 +1,6 @@
-/** Compress images to JPEG (blob or data URL). */
+/** Compress an image file to a JPEG data URL. */
 
-async function drawToCanvas(file, maxEdge) {
+export async function fileToJpegDataUrl(file, maxEdge = 1600, quality = 0.82) {
   try {
     if (typeof createImageBitmap === "function") {
       const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -12,7 +12,7 @@ async function drawToCanvas(file, maxEdge) {
       canvas.height = h;
       canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
       if (bmp.close) bmp.close();
-      return canvas;
+      return canvas.toDataURL("image/jpeg", quality);
     }
   } catch (err) {
     /* fall through */
@@ -30,39 +30,18 @@ async function drawToCanvas(file, maxEdge) {
       canvas.height = h;
       canvas.getContext("2d").drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      resolve(canvas);
+      resolve(canvas.toDataURL("image/jpeg", quality));
     };
     img.onerror = function () {
       URL.revokeObjectURL(url);
-      reject(new Error("Kunne ikke læse billedet"));
+      const reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     };
     img.src = url;
-  });
-}
-
-export async function fileToJpegBlob(file, maxEdge = 1600, quality = 0.82) {
-  const canvas = await drawToCanvas(file, maxEdge);
-  return new Promise(function (resolve, reject) {
-    canvas.toBlob(
-      function (blob) {
-        if (blob) resolve(blob);
-        else reject(new Error("Kunne ikke komprimere billedet"));
-      },
-      "image/jpeg",
-      quality
-    );
-  });
-}
-
-export async function fileToJpegDataUrl(file, maxEdge = 1600, quality = 0.82) {
-  const blob = await fileToJpegBlob(file, maxEdge, quality);
-  return new Promise(function (resolve, reject) {
-    const reader = new FileReader();
-    reader.onload = function () {
-      resolve(reader.result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
   });
 }
 

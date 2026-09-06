@@ -1,4 +1,7 @@
-/** Pre-defined routes & machines – edit freely */
+/**
+ * Seed source for builtin Mallars Ting kontroller.
+ * After editing, regenerate: node scripts/gen-seed.mjs
+ */
 
 export const ROUTES = [
   {

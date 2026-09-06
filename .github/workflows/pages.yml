@@ -30,8 +30,10 @@ jobs:
       - name: Prepare site
         run: |
           mkdir _site
-          cp index.html builder.html CNAME _site/
+          cp index.html builder.html manifest.json manifest-builder.json CNAME _site/
           cp -r css js src _site/
+          printf '{ "version": "%s", "deployedAt": "%s" }\n' \
+            "${GITHUB_SHA::10}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > _site/version.json
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

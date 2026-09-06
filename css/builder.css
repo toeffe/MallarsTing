@@ -5,6 +5,8 @@
   padding-bottom: calc(108px + var(--safe-bottom));
 }
 
+.update-banner { max-width: 760px; }
+
 .intro {
   padding: 0 16px 14px;
   font-size: 0.88rem;
@@ -267,8 +269,7 @@
   align-items: center;
 }
 .export-actions .btn { flex: 1 1 auto; }
-.export-actions #btn-restore,
-.export-actions #btn-src-dir { flex: 1 1 100%; }
+.export-actions #btn-restore { flex: 1 1 100%; }
 
 .toast {
   position: fixed;
@@ -286,8 +287,7 @@
 }
 
 @media (min-width: 520px) {
-  .export-actions #btn-restore,
-  .export-actions #btn-src-dir { flex: 0 1 auto; }
+  .export-actions #btn-restore { flex: 0 1 auto; }
 }
 
 @media (min-width: 761px) {
@@ -296,3 +296,220 @@
     border-right: 1px solid var(--border);
   }
 }
+
+/* ── Template header (Reference-ID / version) ─────────────────────────── */
+.template-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.template-meta span {
+  background: var(--surface-2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.ref-id-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+/* ── Kontrolpunkt grid editor ──────────────────────────────────────────── */
+.point-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.point-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.point-head input[type="text"] { flex: 1; min-width: 0; }
+.point-head .btn.icon { width: 34px; height: 34px; font-size: 0.9rem; flex-shrink: 0; }
+
+.row-strip {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: stretch;
+}
+.row-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.row-tools .btn.icon { width: 26px; height: 22px; font-size: 0.7rem; }
+
+/* ── Drag handles & reordering ─────────────────────────────────────────── */
+.drag-handle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.drag-handle:active { cursor: grabbing; }
+.item-card > summary .drag-handle { width: 22px; }
+.row-tools .drag-handle { width: 26px; height: 20px; font-size: 0.85rem; }
+
+[data-drag-group].dragging,
+[data-drag-point].dragging,
+[data-drag-row].dragging {
+  opacity: 0.4;
+}
+
+.drop-indicator {
+  height: 3px;
+  flex-shrink: 0;
+  margin: -1px 0;
+  border-radius: 2px;
+  background: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 25%, transparent);
+  pointer-events: none;
+}
+
+.drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--primary);
+  color: var(--primary-text);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.drag-preview-icon { opacity: 0.7; }
+
+body.dragging-active {
+  cursor: grabbing !important;
+  user-select: none;
+}
+body.dragging-active * {
+  cursor: grabbing !important;
+}
+
+.field-cell-editor {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.field-cell-editor .field-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.field-cell-editor .field-cell-head .type-icon {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  display: grid; place-items: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+.field-cell-editor input[type="text"],
+.field-cell-editor select {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+.field-cell-editor .required-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.field-cell-editor .required-toggle input { width: 15px; height: 15px; accent-color: var(--text); }
+
+.field-slot-empty {
+  flex: 1;
+  min-height: 64px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.column-picker {
+  display: flex;
+  gap: 6px;
+}
+.column-picker button {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.field-type-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.field-type-picker .chip {
+  border-style: solid;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-start;
+  padding: 10px;
+}
+.field-type-picker .chip .type-icon { font-size: 1rem; }
+
+/* ── AnswerSet editor ──────────────────────────────────────────────────── */
+.answerset-editor .option-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.answerset-editor .option-row input[type="text"] { flex: 1; min-width: 0; }
+.answerset-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.answerset-picker select { flex: 1; min-width: 0; }

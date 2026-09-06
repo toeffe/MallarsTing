@@ -4,8 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
-  <title>Inspectra – Ruteværktøj</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Inspectra Byg" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Inspectra – Kontrolværktøj</title>
+  <link rel="manifest" href="manifest-builder.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Ctext x='16' y='22' text-anchor='middle' fill='%23fff' font-size='18' font-family='sans-serif'%3EI%3C/text%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="src/icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="stylesheet" href="css/builder.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,27 +19,35 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
+  <div id="update-banner" class="update-banner hidden">
+    <span>Ny version klar</span>
+    <button type="button" id="btn-update-reload" class="btn primary small">Genindlæs</button>
+    <button type="button" id="btn-update-dismiss" class="btn ghost icon" title="Luk">×</button>
+  </div>
+
   <div id="app">
 
     <header id="page-header" class="topbar sticky">
       <div class="flex-1">
-        <h2>Ruteværktøj</h2>
-        <p class="sub">Byg ruter og zoner · erstatter placeholders</p>
+        <h2>Kontrolværktøj</h2>
+        <p class="sub">Byg kontroller med egne felter og svarmuligheder</p>
       </div>
       <div class="topbar-actions">
+        <label class="btn ghost icon file-btn" title="Importér .inspectra">
+          ⇩
+          <input id="import-template-file" type="file" accept=".inspectra,application/json" />
+        </label>
         <button type="button" id="btn-theme" class="btn ghost icon theme-toggle" title="Skift tema">◐</button>
       </div>
     </header>
 
     <section id="view-list">
-      <p class="intro">Vælg Maskiner eller Rengøring. Billeder gemmes som filer i <code>src/</code> – ikke som base64. Download <code>data.js</code> og erstat <code>src/data.js</code>.</p>
-      <div class="category-bar" role="tablist" aria-label="Kategori">
-        <button type="button" class="category-btn active" data-category="maskiner">Maskiner</button>
-        <button type="button" class="category-btn" data-category="rengoring">Rengøring</button>
-      </div>
+      <p class="intro">Vælg eller opret en kategori, byg kontroller med gruppér i kontrolpunkter, og sæt egne felter og svarmuligheder op pr. kontrolpunkt. Eksportér som <code>.inspectra</code> og importér på målenheden.</p>
+      <div class="category-bar" role="tablist" aria-label="Kategori" id="category-bar"></div>
       <div id="route-list" class="route-list"></div>
       <div class="list-actions">
-        <button type="button" id="btn-new" class="btn primary full">Ny rute</button>
+        <button type="button" id="btn-new" class="btn primary full">Ny kontrol</button>
+        <button type="button" id="btn-export-multi" class="btn secondary full">Eksportér flere…</button>
       </div>
     </section>
 
@@ -41,7 +55,7 @@
       <header class="topbar sticky editor-nav">
         <button type="button" id="btn-back" class="btn ghost icon" title="Tilbage">←</button>
         <div class="flex-1">
-          <h2 id="editor-title">Rediger rute</h2>
+          <h2 id="editor-title">Rediger kontrol</h2>
           <p class="sub" id="editor-sub"></p>
         </div>
         <button type="button" id="btn-theme-editor" class="btn ghost icon theme-toggle" title="Skift tema">◐</button>
@@ -49,16 +63,22 @@
       <div id="editor-body" class="editor-body"></div>
     </section>
 
-    <div class="export-bar">
-      <p class="export-status" id="export-status"></p>
-      <div class="export-actions">
-        <button type="button" id="btn-src-dir" class="btn ghost small">Vælg src-mappe</button>
-        <button type="button" id="btn-restore" class="btn ghost small">Gendan fra data.js</button>
-        <button type="button" id="btn-copy" class="btn secondary small" disabled>Kopiér</button>
-        <button type="button" id="btn-download" class="btn primary small" disabled>Download data.js</button>
-      </div>
-    </div>
+  </div>
 
+  <div id="field-type-modal" class="modal hidden">
+    <div class="modal-content" id="field-type-modal-body"></div>
+  </div>
+
+  <div id="answerset-modal" class="modal hidden">
+    <div class="modal-content" id="answerset-modal-body"></div>
+  </div>
+
+  <div id="import-modal" class="modal hidden">
+    <div class="modal-content" id="import-modal-body"></div>
+  </div>
+
+  <div id="export-modal" class="modal hidden">
+    <div class="modal-content" id="export-modal-body"></div>
   </div>
 
   <div id="toast" class="toast hidden" role="status"></div>

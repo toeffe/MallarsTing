@@ -1,71 +1,50 @@
-import { ROUTES as DATA_ROUTES, STATUS, STATUS_LABEL } from "../src/data.js";
+import { $, $$, clone, downloadBlob, canSharePdf, sharePdfFile } from "./util.js";
+import { initTheme } from "./theme.js";
+import * as store from "./store.js";
+import { ensureTemplatesInstalled } from "./migrate.js";
+import * as fields from "./fields.js";
 import { fileToJpegDataUrl, showLightbox } from "./image.js";
+import { createSignaturePad } from "./signature.js";
+import { readInspectraFile, describeInstalls } from "./inspectra-io.js";
+import { initUpdateChecker, dismissUpdate, getLocalVersion, getRemoteVersionInfo } from "./update-checker.js";
 
-const CATEGORY_KEY = "inspectra_category";
-const DONE_KEY = "inspectra_done";
-const DRAFT_KEY = "inspectra_builder_draft";
+const CATEGORY_KEY = "inspectra_category_filter";
+const VIEW_PREF_KEY = "inspectra_view_pref";
+
+const helpers = { fileToJpegDataUrl, showLightbox, createSignaturePad };
 
 const state = {
   userId: localStorage.getItem("inspectra_user") || "",
-  category: localStorage.getItem(CATEGORY_KEY) || "maskiner",
-  currentRoute: null,
-  currentMachineIdx: null,
+  categoryFilter: localStorage.getItem(CATEGORY_KEY) || "",
+  currentTemplate: null,
+  currentGroupIdx: null,
+  currentPointIdx: 0,
+  viewMode: localStorage.getItem(VIEW_PREF_KEY) || "punktvisning",
   results: {},
-  photoTarget: null,
   lastReport: null,
   lastPdf: null,
+  pendingImport: null,
+  historyEntryId: null,
 };
 
-function getRoutes() {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY) || "";
-    if (raw.includes("data:image")) return DATA_ROUTES;
-    const parsed = JSON.parse(raw || "");
-    if (parsed && Array.isArray(parsed.routes) && parsed.routes.length) {
-      return parsed.routes;
-    }
-  } catch (err) {
-    /* ignore */
-  }
-  return DATA_ROUTES;
-}
-
-function usingBuilderDraft() {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY) || "";
-    if (!raw || raw.includes("data:image")) return false;
-    const parsed = JSON.parse(raw);
-    return !!(parsed && Array.isArray(parsed.routes) && parsed.routes.length);
-  } catch (err) {
-    return false;
-  }
-}
+/* ── Small pure helpers ────────────────────────────────── */
 
 function categoryLabel(cat) {
-  return cat === "rengoring" ? "Rengøring" : "Maskiner";
+  if (cat === "rengoring") return "Rengøring";
+  if (cat === "maskiner") return "Maskiner";
+  return cat || "Andet";
 }
 
-function isCleaning(route) {
-  return (route || state.currentRoute || {}).category === "rengoring";
+function itemNoun(template, plural) {
+  const cat = (template || {}).category;
+  if (cat === "rengoring") return plural ? "områder" : "område";
+  if (cat === "maskiner") return plural ? "maskiner" : "maskine";
+  return plural ? "grupper" : "gruppe";
 }
 
-function checkChoices(route) {
-  if (isCleaning(route)) {
-    return [
-      { id: STATUS.DONE, label: "Udført", cls: "ok" },
-      { id: STATUS.SKIP, label: "Ikke aktuelt", cls: "worn" },
-      { id: STATUS.ISSUE, label: "Afvigelse", cls: "critical" },
-    ];
-  }
-  return [
-    { id: STATUS.OK, label: "OK", cls: "ok" },
-    { id: STATUS.WORN, label: "Slidt", cls: "worn" },
-    { id: STATUS.CRITICAL, label: "Kritisk", cls: "critical" },
-  ];
-}
-
-function itemNoun(route) {
-  return isCleaning(route) ? "områder" : "maskiner";
+function scheduleLabel(s) {
+  const map = { daily: "Daglig", weekly: "Ugentlig", monthly: "Månedlig", yearly: "Årlig" };
+  return map[s] || s;
 }
 
 function periodKey(schedule, date) {
@@ -87,55 +66,112 @@ function periodKey(schedule, date) {
   return y + "-" + m + "-" + day;
 }
 
-function loadDoneMap() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(DONE_KEY) || "{}");
-    return raw && typeof raw === "object" ? raw : {};
-  } catch (err) {
-    return {};
+function isTemplateDone(template) {
+  if (!template || !state.userId) return false;
+  const rec = (store.getDoneMap()[state.userId] || {})[template.referenceId];
+  return !!(rec && rec.period === periodKey(template.schedule));
+}
+
+function markTemplateDone(template) {
+  if (!template || !state.userId) return;
+  const all = store.getDoneMap();
+  if (!all[state.userId]) all[state.userId] = {};
+  all[state.userId][template.referenceId] = {
+    period: periodKey(template.schedule),
+    at: new Date().toISOString(),
+  };
+  store.saveDoneMap(all);
+}
+
+function defaultValueForType(type) {
+  switch (type) {
+    case "multi_choice":
+    case "photo":
+      return [];
+    default:
+      return null;
   }
 }
 
-function isRouteDone(route) {
-  if (!route || !state.userId) return false;
-  const rec = (loadDoneMap()[state.userId] || {})[route.id];
-  return !!(rec && rec.period === periodKey(route.schedule));
+function initResultsForTemplate(template) {
+  const results = {};
+  template.groups.forEach((g) => {
+    results[g.id] = {};
+    g.points.forEach((p) => {
+      const values = {};
+      p.rows.forEach((row) => {
+        row.fields.forEach((f) => {
+          if (!f) return;
+          values[f.id] = defaultValueForType(f.type);
+        });
+      });
+      results[g.id][p.id] = { values: values };
+    });
+  });
+  return results;
 }
 
-function markRouteDone(route) {
-  if (!route || !state.userId) return;
-  const all = loadDoneMap();
-  if (!all[state.userId]) all[state.userId] = {};
-  all[state.userId][route.id] = {
-    period: periodKey(route.schedule),
-    at: new Date().toISOString(),
-  };
-  localStorage.setItem(DONE_KEY, JSON.stringify(all));
+function getValue(groupId, pointId, fieldId) {
+  return (((state.results[groupId] || {})[pointId] || {}).values || {})[fieldId];
 }
 
-function needsPhoto(status) {
-  return (
-    status === STATUS.OK ||
-    status === STATUS.WORN ||
-    status === STATUS.CRITICAL
+function setValue(groupId, pointId, fieldId, val) {
+  if (!state.results[groupId]) state.results[groupId] = {};
+  if (!state.results[groupId][pointId]) state.results[groupId][pointId] = { values: {} };
+  state.results[groupId][pointId].values[fieldId] = val;
+}
+
+function allFields(point) {
+  const list = [];
+  point.rows.forEach((row) => row.fields.forEach((f) => f && list.push(f)));
+  return list;
+}
+
+function isPointComplete(point, groupId) {
+  return allFields(point).every((f) =>
+    fields.isRequiredFieldFilled(f, getValue(groupId, point.id, f.id))
   );
 }
 
-function needsNote(status) {
-  return (
-    status === STATUS.OK ||
-    status === STATUS.WORN ||
-    status === STATUS.CRITICAL ||
-    status === STATUS.ISSUE
-  );
+function groupProgress(group) {
+  const total = group.points.length;
+  const done = group.points.filter((p) => isPointComplete(p, group.id)).length;
+  return { done: done, total: total };
 }
 
-function showsNoteArea(status) {
-  return needsNote(status);
+function templateComplete(template) {
+  return template.groups.every((g) => groupProgress(g).done === g.points.length);
 }
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+function incompleteGroupNames(template) {
+  return template.groups
+    .filter((g) => groupProgress(g).done < g.points.length)
+    .map((g) => g.name);
+}
+
+function computeStats(template, results) {
+  let totalRequired = 0,
+    filledRequired = 0,
+    photoCount = 0,
+    signatureCount = 0;
+  template.groups.forEach((g) => {
+    g.points.forEach((p) => {
+      allFields(p).forEach((f) => {
+        const val = ((results[g.id] || {})[p.id] || {}).values || {};
+        const v = val[f.id];
+        if (f.required) {
+          totalRequired++;
+          if (fields.isRequiredFieldFilled(f, v)) filledRequired++;
+        }
+        if (f.type === "photo" && Array.isArray(v)) photoCount += v.length;
+        if (f.type === "signature" && v) signatureCount++;
+      });
+    });
+  });
+  return { totalRequired, filledRequired, photoCount, signatureCount };
+}
+
+/* ── View switching ────────────────────────────────────── */
 
 function showView(id) {
   $$(".view").forEach((v) => v.classList.remove("active"));
@@ -144,32 +180,74 @@ function showView(id) {
   window.scrollTo(0, 0);
 }
 
-/* ── Theme ─────────────────────────────────────────── */
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("inspectra_theme", theme);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", theme === "dark" ? "#000000" : "#ffffff");
+initTheme();
+
+/* ── Update checker ────────────────────────────────────── */
+let pendingUpdateVersion = null;
+function showUpdateBanner(version) {
+  pendingUpdateVersion = version;
+  $("#update-banner").classList.remove("hidden");
 }
-
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute("data-theme") || "dark";
-  applyTheme(cur === "dark" ? "light" : "dark");
-}
-
-const savedTheme =
-  localStorage.getItem("inspectra_theme") ||
-  (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-applyTheme(savedTheme);
-
-document.querySelectorAll(".theme-toggle").forEach((btn) => {
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    toggleTheme();
-  });
+$("#btn-update-reload").addEventListener("click", () => window.location.reload());
+$("#btn-update-dismiss").addEventListener("click", () => {
+  if (pendingUpdateVersion) dismissUpdate(pendingUpdateVersion);
+  $("#update-banner").classList.add("hidden");
 });
+initUpdateChecker(showUpdateBanner);
 
-/* ── Login ─────────────────────────────────────────── */
+$("#btn-version-info").addEventListener("click", showVersionModal);
+
+async function showVersionModal() {
+  const body = $("#version-modal-body");
+  body.innerHTML = "<h3>Version</h3><p>Henter…</p>";
+  $("#version-modal").classList.remove("hidden");
+
+  const local = getLocalVersion();
+  const remote = await getRemoteVersionInfo();
+
+  body.innerHTML = "";
+  const h3 = document.createElement("h3");
+  h3.textContent = "Version";
+  body.appendChild(h3);
+
+  const rows = document.createElement("div");
+  rows.className = "install-conflict";
+  const localRow = document.createElement("p");
+  localRow.textContent = "Lokal version: " + (local || "ukendt");
+  const remoteRow = document.createElement("p");
+  if (!remote) {
+    remoteRow.textContent = "Server-version: kunne ikke hentes";
+  } else {
+    remoteRow.textContent =
+      "Server-version: " + remote.version + (remote.deployedAt ? " (" + remote.deployedAt + ")" : "");
+  }
+  rows.appendChild(localRow);
+  rows.appendChild(remoteRow);
+  if (remote && local && remote.version !== local) {
+    const notice = document.createElement("p");
+    notice.textContent = "Der er en nyere version tilgængelig.";
+    rows.appendChild(notice);
+  }
+  body.appendChild(rows);
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const reload = document.createElement("button");
+  reload.type = "button";
+  reload.className = "btn primary full";
+  reload.textContent = "Genindlæs";
+  reload.addEventListener("click", () => window.location.reload());
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn ghost full";
+  close.textContent = "Luk";
+  close.addEventListener("click", () => $("#version-modal").classList.add("hidden"));
+  actions.appendChild(reload);
+  actions.appendChild(close);
+  body.appendChild(actions);
+}
+
+/* ── Login ─────────────────────────────────────────────── */
 $("#login-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const id = $("#user-id").value.trim();
@@ -177,7 +255,7 @@ $("#login-form").addEventListener("submit", (e) => {
   state.userId = id;
   localStorage.setItem("inspectra_user", id);
   $("#user-label").textContent = id;
-  renderRoutes();
+  renderDashboard();
   showView("view-dashboard");
 });
 
@@ -187,94 +265,97 @@ $("#btn-logout").addEventListener("click", () => {
   showView("view-login");
 });
 
-if (state.userId) {
-  $("#user-id").value = state.userId;
-  $("#user-label").textContent = state.userId;
-  renderRoutes();
-  showView("view-dashboard");
-} else {
-  showView("view-login");
-}
+/* ── Dashboard: category / schedule filters ───────────────── */
+$("#schedule-filter").addEventListener("change", renderDashboard);
 
-/* ── Routes ────────────────────────────────────────── */
-$("#schedule-filter").addEventListener("change", renderRoutes);
-
-document.querySelectorAll(".category-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    state.category = btn.dataset.category;
-    localStorage.setItem(CATEGORY_KEY, state.category);
-    renderRoutes();
+function templateCategories() {
+  const set = new Set(Object.values(store.getTemplates()).map((t) => t.category || "andet"));
+  const order = ["maskiner", "rengoring"];
+  const list = Array.from(set);
+  list.sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    return a.localeCompare(b);
   });
-});
-
-function scheduleLabel(s) {
-  const map = { daily: "Daglig", weekly: "Ugentlig", monthly: "Månedlig", yearly: "Årlig" };
-  return map[s] || s;
+  return list;
 }
 
-function renderRoutes() {
+function renderCategoryBar() {
+  const bar = $("#category-bar");
+  bar.innerHTML = "";
+  const cats = templateCategories();
+  if (!cats.includes(state.categoryFilter)) {
+    state.categoryFilter = cats[0] || "";
+  }
+  cats.forEach((cat) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "category-btn" + (state.categoryFilter === cat ? " active" : "");
+    btn.textContent = categoryLabel(cat);
+    btn.addEventListener("click", () => {
+      state.categoryFilter = cat;
+      localStorage.setItem(CATEGORY_KEY, cat);
+      renderDashboard();
+    });
+    bar.appendChild(btn);
+  });
+  const mapPanel = $("#rengoring-map");
+  if (mapPanel) mapPanel.classList.toggle("hidden", state.categoryFilter !== "rengoring");
+}
+
+function renderDashboard() {
+  renderCategoryBar();
   const filter = $("#schedule-filter").value;
   const list = $("#route-list");
-  const mapPanel = $("#rengoring-map");
   list.innerHTML = "";
 
-  $$(".category-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.category === state.category);
-  });
-
-  if (mapPanel) {
-    mapPanel.classList.toggle("hidden", state.category !== "rengoring");
-  }
-
-  const filtered = getRoutes().filter((r) => {
-    const catOk = (r.category || "maskiner") === state.category;
-    const schedOk = filter === "all" || r.schedule === filter;
+  const all = Object.values(store.getTemplates());
+  const filtered = all.filter((t) => {
+    const catOk = (t.category || "andet") === state.categoryFilter;
+    const schedOk = filter === "all" || t.schedule === filter;
     return catOk && schedOk;
   });
 
-  if (usingBuilderDraft()) {
-    const note = document.createElement("p");
-    note.className = "draft-banner";
-    note.textContent = "Viser udkast fra ruteværktøjet.";
-    list.appendChild(note);
-  }
-
-  if (filtered.length === 0) {
+  if (!filtered.length) {
     const empty = document.createElement("p");
     empty.style.cssText = "color:var(--text-muted);text-align:center;padding:24px";
-    empty.textContent = "Ingen ruter for denne plan.";
+    empty.textContent = "Ingen kontroller for denne plan.";
     list.appendChild(empty);
     return;
   }
 
-  filtered.forEach((route) => {
+  filtered.forEach((template) => {
     const card = document.createElement("div");
-    const done = isRouteDone(route);
+    const done = isTemplateDone(template);
     card.className = "route-card" + (done ? " done" : "");
 
     const h3 = document.createElement("h3");
-    h3.textContent = route.name;
+    h3.textContent = template.name;
     card.appendChild(h3);
 
     const desc = document.createElement("p");
     desc.style.cssText = "font-size:0.85rem;color:var(--text-muted)";
-    desc.textContent = route.description;
+    desc.textContent = template.description;
     card.appendChild(desc);
 
     const meta = document.createElement("div");
     meta.className = "route-meta";
     const s1 = document.createElement("span");
-    s1.textContent = route.machines.length + " " + itemNoun(route);
+    s1.textContent = template.groups.length + " " + itemNoun(template, true);
     const s2 = document.createElement("span");
     s2.className = "sched-tag";
-    s2.textContent = scheduleLabel(route.schedule);
+    s2.textContent = scheduleLabel(template.schedule);
     meta.appendChild(s1);
     meta.appendChild(s2);
-    if (route.zoneLabel) {
+    if (template.zoneLabel) {
       const s3 = document.createElement("span");
-      s3.textContent = route.zoneLabel;
+      s3.textContent = template.zoneLabel;
       meta.appendChild(s3);
     }
+    const s4 = document.createElement("span");
+    s4.textContent = "v" + template.version;
+    meta.appendChild(s4);
     if (done) {
       const sDone = document.createElement("span");
       sDone.className = "done-tag";
@@ -283,66 +364,258 @@ function renderRoutes() {
     }
     card.appendChild(meta);
 
-    card.addEventListener("click", () => startRoute(route));
+    card.addEventListener("click", () => startTemplate(template));
     list.appendChild(card);
   });
 }
 
-/* ── Start route ───────────────────────────────────── */
-function startRoute(route) {
-  state.currentRoute = route;
-  state.results = {};
-  route.machines.forEach((m) => {
-    state.results[m.id] = { checks: {} };
+/* ── On-device .inspectra import ──────────────────────────── */
+$("#import-file").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const parsed = await readInspectraFile(file);
+    state.pendingImport = parsed.templates;
+    showImportModal(describeInstalls(parsed.templates));
+  } catch (err) {
+    alert(err.message || "Kunne ikke importere filen.");
+  }
+});
+
+function conflictInfoHtml(decision, template) {
+  if (decision.action === "new") {
+    return (
+      "<strong>" +
+      escapeHtml(template.name) +
+      "</strong><span>Ny · Reference: " +
+      escapeHtml(template.referenceId) +
+      " · v" +
+      template.version +
+      "</span>"
+    );
+  } else if (decision.action === "update") {
+    return (
+      "<strong>" +
+      escapeHtml(template.name) +
+      "</strong><span>Opdatering · Installeret v" +
+      decision.installedVersion +
+      " → Importeret v" +
+      decision.importedVersion +
+      "</span>"
+    );
+  }
+  return (
+    "<strong>" +
+    escapeHtml(template.name) +
+    "</strong><span>Ingen opdatering nødvendig · Installeret v" +
+    decision.installedVersion +
+    " · Importeret v" +
+    decision.importedVersion +
+    "</span>"
+  );
+}
+
+function showImportModal(entries) {
+  const body = $("#import-modal-body");
+  body.innerHTML = "";
+  const h3 = document.createElement("h3");
+  h3.textContent = entries.length === 1 ? "Installer kontrol" : "Installer " + entries.length + " kontroller";
+  body.appendChild(h3);
+
+  entries.forEach(({ decision, template }) => {
+    const info = document.createElement("div");
+    info.className = "install-conflict";
+    info.innerHTML = conflictInfoHtml(decision, template);
+    body.appendChild(info);
   });
-  $("#route-title").textContent = route.name;
-  renderMachineSteps();
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "btn secondary";
+  cancel.textContent = "Annullér";
+  cancel.addEventListener("click", closeImportModal);
+  actions.appendChild(cancel);
+
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "btn primary";
+  confirm.textContent = entries.some((e) => e.decision.action !== "same-or-older")
+    ? "Installer/Opdater alle"
+    : "Installer alligevel";
+  confirm.addEventListener("click", () => {
+    entries.forEach(({ template }) => {
+      store.mergeEmbeddedAnswerSets(template.embeddedAnswerSets);
+      store.upsertTemplate(template);
+    });
+    closeImportModal();
+    renderDashboard();
+  });
+  actions.appendChild(confirm);
+
+  body.appendChild(actions);
+  $("#import-modal").classList.remove("hidden");
+}
+
+function closeImportModal() {
+  $("#import-modal").classList.add("hidden");
+  state.pendingImport = null;
+}
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/* ── History ──────────────────────────────────────────────── */
+$("#btn-history").addEventListener("click", () => {
+  renderHistoryList();
+  showView("view-history");
+});
+$("#btn-back-history").addEventListener("click", () => {
+  renderDashboard();
+  showView("view-dashboard");
+});
+$("#btn-back-history-detail").addEventListener("click", () => {
+  renderHistoryList();
+  showView("view-history");
+});
+
+function renderHistoryList() {
+  const list = $("#history-list");
+  list.innerHTML = "";
+  const entries = Object.values(store.getHistory()).sort((a, b) =>
+    (b.finishedAt || "").localeCompare(a.finishedAt || "")
+  );
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.style.cssText = "color:var(--text-muted);text-align:center;padding:24px";
+    empty.textContent = "Ingen gennemførte kontroller endnu.";
+    list.appendChild(empty);
+    return;
+  }
+  entries.forEach((entry) => {
+    const card = document.createElement("div");
+    card.className = "history-card";
+    const h3 = document.createElement("h3");
+    h3.textContent = entry.templateSnapshot.name;
+    card.appendChild(h3);
+    const meta = document.createElement("div");
+    meta.className = "route-meta";
+    [
+      new Date(entry.finishedAt).toLocaleString("da-DK"),
+      "v" + entry.version,
+      entry.userId,
+    ].forEach((text) => {
+      const s = document.createElement("span");
+      s.textContent = text;
+      meta.appendChild(s);
+    });
+    card.appendChild(meta);
+    card.addEventListener("click", () => openHistoryEntry(entry.id));
+    list.appendChild(card);
+  });
+}
+
+function openHistoryEntry(id) {
+  const entry = store.getHistoryEntry(id);
+  if (!entry) return;
+  state.historyEntryId = id;
+  const template = entry.templateSnapshot;
+  const container = $("#history-detail-body");
+  container.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.className = "summary-card";
+  const h3 = document.createElement("h3");
+  h3.textContent = template.name;
+  head.appendChild(h3);
+  [
+    ["Reference-ID", template.referenceId],
+    ["Version", "v" + entry.version],
+    ["Arbejds-ID", entry.userId],
+    ["Dato", new Date(entry.finishedAt).toLocaleString("da-DK")],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.className = "summary-stat";
+    const a = document.createElement("span");
+    a.textContent = label;
+    const b = document.createElement("span");
+    b.textContent = value;
+    row.appendChild(a);
+    row.appendChild(b);
+    head.appendChild(row);
+  });
+  container.appendChild(head);
+
+  template.groups.forEach((group) => {
+    const groupHead = document.createElement("h3");
+    groupHead.style.cssText = "padding:0 16px;margin-top:8px";
+    groupHead.textContent = group.name;
+    container.appendChild(groupHead);
+    group.points.forEach((point) => {
+      const values = ((entry.results[group.id] || {})[point.id] || {}).values || {};
+      const card = renderPointCard(point, group.id, values, function () {}, "preview", template);
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:0 16px 12px";
+      wrap.appendChild(card);
+      container.appendChild(wrap);
+    });
+  });
+
+  $("#btn-history-pdf").onclick = async () => {
+    try {
+      const report = buildReportData(template, entry.results, entry.userId, entry.finishedAt);
+      const doc = await generatePdf(report);
+      downloadBlob(doc.output("blob"), report.filename);
+    } catch (err) {
+      console.error(err);
+      alert("Kunne ikke generere PDF.");
+    }
+  };
+
+  showView("view-history-detail");
+}
+
+/* ── Start a template run ─────────────────────────────────── */
+function startTemplate(template) {
+  state.currentTemplate = template;
+  state.results = initResultsForTemplate(template);
+  $("#route-title").textContent = template.name;
+  renderGroupSteps();
   showView("view-route");
 }
 
 $("#btn-back-routes").addEventListener("click", () => {
-  renderRoutes();
+  renderDashboard();
   showView("view-dashboard");
 });
 
-function renderMachineSteps() {
+function renderGroupSteps() {
   const container = $("#machine-steps");
   container.innerHTML = "";
-  const route = state.currentRoute;
-  let doneCount = 0;
+  const template = state.currentTemplate;
 
-  route.machines.forEach((machine, idx) => {
-    const res = state.results[machine.id];
-    const checks = Object.values(res.checks);
-    const isDone =
-      checks.length === machine.checks.length && checks.every((c) => c.status);
-    const hasIssue = checks.some(
-      (c) => c.status === STATUS.CRITICAL || c.status === STATUS.ISSUE
-    );
-    const hasWarn = checks.some(
-      (c) => c.status === STATUS.WORN || c.status === STATUS.SKIP
-    );
-    if (isDone) doneCount++;
-
-    let cls = "machine-card";
-    if (hasIssue) cls += " critical";
-    else if (hasWarn) cls += " worn";
-    else if (isDone) cls += " done";
-
-    const statusIcon = hasIssue ? "!" : hasWarn ? "–" : isDone ? "✓" : String(idx + 1);
+  template.groups.forEach((group, idx) => {
+    const progress = groupProgress(group);
+    const complete = progress.done === progress.total;
 
     const card = document.createElement("div");
-    card.className = cls;
+    card.className = "machine-card" + (complete ? " done" : "");
 
     const statusEl = document.createElement("div");
     statusEl.className = "machine-status";
-    statusEl.textContent = statusIcon;
+    statusEl.textContent = complete ? "✓" : String(idx + 1);
     card.appendChild(statusEl);
 
-    if (machine.image) {
+    if (group.image) {
       const thumb = document.createElement("img");
       thumb.className = "machine-thumb";
-      thumb.src = machine.image;
+      thumb.src = group.image;
       thumb.alt = "";
       card.appendChild(thumb);
     }
@@ -350,379 +623,263 @@ function renderMachineSteps() {
     const info = document.createElement("div");
     info.className = "machine-info";
     const h3 = document.createElement("h3");
-    h3.textContent = machine.name;
+    h3.textContent = group.name;
     const p = document.createElement("p");
     p.textContent =
-      machine.location +
-      " · " +
-      machine.checks.length +
-      (isCleaning(route) ? " opgaver" : " kontrolpunkter");
+      group.location + " · " + progress.done + " / " + progress.total + " kontrolpunkter";
     info.appendChild(h3);
     info.appendChild(p);
     card.appendChild(info);
 
-    card.addEventListener("click", () => openMachine(idx));
+    card.addEventListener("click", () => openGroup(idx));
     container.appendChild(card);
   });
 
-  const total = route.machines.length;
-  $("#route-progress").textContent =
-    doneCount + " / " + total + " " + itemNoun(route);
-  $("#progress-fill").style.width = (doneCount / total) * 100 + "%";
-  $("#btn-finish-route").disabled = doneCount < total;
+  const doneGroups = template.groups.filter((g) => groupProgress(g).done === g.points.length).length;
+  $("#route-progress").textContent = doneGroups + " / " + template.groups.length + " " + itemNoun(template, true);
+  $("#progress-fill").style.width = (doneGroups / template.groups.length) * 100 + "%";
+  $("#btn-finish-route").disabled = !templateComplete(template);
 }
 
-/* ── Machine detail ────────────────────────────────── */
-function openMachine(idx) {
-  state.currentMachineIdx = idx;
-  const machine = state.currentRoute.machines[idx];
-  $("#machine-title").textContent = machine.name;
-  $("#machine-location").textContent = machine.location;
-  const guide = $("#machine-guide");
-  if (guide) {
-    guide.innerHTML = "";
-    if (machine.image) {
-      const img = document.createElement("img");
-      img.src = machine.image;
-      img.alt = machine.name;
-      img.addEventListener("click", () => showLightbox(machine.image));
-      guide.appendChild(img);
-      guide.classList.remove("hidden");
+$("#btn-finish-route").addEventListener("click", () => finishTemplate());
+
+/* ── Group detail: Oversigt / Punktvisning ────────────────── */
+function pointCount(group) {
+  return group && group.points ? group.points.length : 0;
+}
+
+function isAtFirstPoint() {
+  const groups = state.currentTemplate.groups;
+  for (let i = 0; i < state.currentGroupIdx; i++) {
+    if (pointCount(groups[i])) return false;
+  }
+  return state.currentPointIdx === 0;
+}
+
+function isAtLastPoint() {
+  const groups = state.currentTemplate.groups;
+  for (let i = state.currentGroupIdx + 1; i < groups.length; i++) {
+    if (pointCount(groups[i])) return false;
+  }
+  const n = pointCount(groups[state.currentGroupIdx]);
+  return n === 0 || state.currentPointIdx >= n - 1;
+}
+
+function stepPoint(dir) {
+  const groups = state.currentTemplate.groups;
+  let g = state.currentGroupIdx;
+  let p = state.currentPointIdx + dir;
+  while (g >= 0 && g < groups.length) {
+    const n = pointCount(groups[g]);
+    if (n && p >= 0 && p < n) {
+      openGroup(g, p);
+      return true;
+    }
+    if (dir > 0) {
+      g += 1;
+      p = 0;
     } else {
-      guide.classList.add("hidden");
+      g -= 1;
+      if (g >= 0) p = pointCount(groups[g]) - 1;
     }
   }
-  renderCheckItems(machine);
+  return false;
+}
+
+function leaveGroupList() {
+  renderGroupSteps();
+  showView("view-route");
+}
+
+function openGroup(idx, pointIdx) {
+  state.currentGroupIdx = idx;
+  state.currentPointIdx = pointIdx == null ? 0 : pointIdx;
+  const group = state.currentTemplate.groups[idx];
+  $("#machine-title").textContent = group.name;
+  $("#machine-location").textContent = group.location;
+
+  const guide = $("#machine-guide");
+  guide.innerHTML = "";
+  if (group.image) {
+    const img = document.createElement("img");
+    img.src = group.image;
+    img.alt = group.name;
+    img.addEventListener("click", () => showLightbox(group.image));
+    guide.appendChild(img);
+    guide.classList.remove("hidden");
+  } else {
+    guide.classList.add("hidden");
+  }
+
+  const executionView = state.currentTemplate.executionView || "begge";
+  if (executionView !== "begge") state.viewMode = executionView;
+  renderViewToggle(executionView);
+  renderGroupBody();
   showView("view-machine");
 }
 
 $("#btn-back-machines").addEventListener("click", () => {
-  renderMachineSteps();
-  showView("view-route");
+  leaveGroupList();
 });
 
-function renderCheckItems(machine) {
-  const container = $("#check-items");
-  container.innerHTML = "";
-  const stored = state.results[machine.id].checks;
-
-  machine.checks.forEach((check) => {
-    const data = stored[check.id] || {
-      status: null,
-      note: "",
-      photo: null,
-      flagReplace: false,
-    };
-    const needsDoc = showsNoteArea(data.status);
-
-    const item = document.createElement("div");
-    item.className = "check-item";
-    item.dataset.checkId = check.id;
-
-    const head = document.createElement("div");
-    head.className = "check-head";
-    if (check.image) {
-      const guideImg = document.createElement("img");
-      guideImg.className = "check-guide";
-      guideImg.src = check.image;
-      guideImg.alt = check.label;
-      guideImg.addEventListener("click", () => showLightbox(check.image));
-      head.appendChild(guideImg);
-    }
-    const h4 = document.createElement("h4");
-    h4.textContent = check.label;
-    head.appendChild(h4);
-    item.appendChild(head);
-
-    const statusRow = document.createElement("div");
-    statusRow.className = "status-row";
-    const cleaning = isCleaning();
-    checkChoices().forEach((opt) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className =
-        "status-btn " + opt.cls + (data.status === opt.id ? " active" : "");
-      btn.dataset.s = opt.id;
-      btn.textContent = opt.label;
-      btn.addEventListener("click", () => {
-        statusRow.querySelectorAll(".status-btn").forEach((b) =>
-          b.classList.remove("active")
-        );
-        btn.classList.add("active");
-        const noteArea = item.querySelector(".note-area");
-        const flagRow = item.querySelector(".flag-row");
-        if (showsNoteArea(opt.id)) {
-          noteArea.classList.add("visible");
-        } else {
-          noteArea.classList.remove("visible");
-        }
-        if (!cleaning && opt.id === STATUS.CRITICAL) {
-          flagRow.classList.remove("hidden");
-        } else {
-          flagRow.classList.add("hidden");
-        }
-        saveCheckState(machine.id, check.id, item);
-      });
-      statusRow.appendChild(btn);
-    });
-    item.appendChild(statusRow);
-
-    const noteArea = document.createElement("div");
-    noteArea.className =
-      "note-area" + (needsDoc ? " visible" : "");
-
-    const textarea = document.createElement("textarea");
-    textarea.placeholder = cleaning
-      ? "Bemærkning…"
-      : "Bemærkning / observation…";
-    textarea.value = data.note || "";
-    textarea.addEventListener("input", () =>
-      saveCheckState(machine.id, check.id, item)
-    );
-    noteArea.appendChild(textarea);
-
-    const photoRow = document.createElement("div");
-    photoRow.className = "photo-row";
-
-    if (data.photo) {
-      const img = document.createElement("img");
-      img.className = "photo-thumb";
-      img.alt = "foto";
-      img.src = data.photo;
-      photoRow.appendChild(img);
-    } else {
-      const empty = document.createElement("div");
-      empty.className = "photo-thumb empty";
-      empty.textContent = cleaning ? "Valgfrit" : "Foto";
-      photoRow.appendChild(empty);
-    }
-
-    const photoBtn = document.createElement("button");
-    photoBtn.type = "button";
-    photoBtn.className = "btn secondary small btn-photo";
-    photoBtn.textContent = cleaning ? "Foto (valgfrit)" : "Tag / vælg foto";
-    photoBtn.addEventListener("click", () => {
-      state.photoTarget = {
-        machineId: machine.id,
-        checkId: check.id,
-        itemEl: item,
-      };
-      openPhotoModal(data.photo || null);
-    });
-    photoRow.appendChild(photoBtn);
-    noteArea.appendChild(photoRow);
-
-    const flagRow = document.createElement("div");
-    flagRow.className =
-      "flag-row" +
-      (cleaning || data.status !== STATUS.CRITICAL ? " hidden" : "");
-    const flagCb = document.createElement("input");
-    flagCb.type = "checkbox";
-    flagCb.className = "flag-replace";
-    flagCb.checked = !!data.flagReplace;
-    flagCb.addEventListener("change", () =>
-      saveCheckState(machine.id, check.id, item)
-    );
-    const flagLabel = document.createElement("label");
-    flagLabel.textContent = "Markér til udskiftning";
-    flagRow.appendChild(flagCb);
-    flagRow.appendChild(flagLabel);
-    noteArea.appendChild(flagRow);
-
-    item.appendChild(noteArea);
-    container.appendChild(item);
-  });
-}
-
-function saveCheckState(machineId, checkId, itemEl) {
-  const active = itemEl.querySelector(".status-btn.active");
-  const status = active ? active.dataset.s : null;
-  const noteEl = itemEl.querySelector("textarea");
-  const note = noteEl ? noteEl.value : "";
-  const flagEl = itemEl.querySelector(".flag-replace");
-  const flag = flagEl ? flagEl.checked : false;
-  const existing = state.results[machineId].checks[checkId] || {};
-  state.results[machineId].checks[checkId] = {
-    status: status,
-    note: note,
-    photo: existing.photo || null,
-    flagReplace: flag,
-  };
-}
-
-$("#btn-save-machine").addEventListener("click", () => {
-  const machine = state.currentRoute.machines[state.currentMachineIdx];
-  $$(".check-item").forEach((item) => {
-    saveCheckState(machine.id, item.dataset.checkId, item);
-  });
-
-  const missing = machine.checks.filter(
-    (c) => !state.results[machine.id].checks[c.id] || !state.results[machine.id].checks[c.id].status
-  );
-  if (missing.length) {
-    alert("Vælg status for: " + missing.map((m) => m.label).join(", "));
+function renderViewToggle(executionView) {
+  const bar = $("#view-toggle");
+  bar.innerHTML = "";
+  if (executionView !== "begge") {
+    bar.classList.add("hidden");
     return;
   }
-
-  for (let i = 0; i < machine.checks.length; i++) {
-    const c = machine.checks[i];
-    const d = state.results[machine.id].checks[c.id];
-    if (needsPhoto(d.status) && !d.photo) {
-      alert('Foto påkrævet for "' + c.label + '" (' + STATUS_LABEL[d.status] + ")");
-      return;
-    }
-    if (needsNote(d.status) && !(d.note || "").trim()) {
-      alert('Bemærkning påkrævet for "' + c.label + '"');
-      return;
-    }
-  }
-
-  renderMachineSteps();
-  showView("view-route");
-});
-
-/* ── Photo modal ───────────────────────────────────── */
-function applyPhotoToUi(dataUrl) {
-  const preview = $("#photo-preview");
-  preview.innerHTML = "";
-  const img = document.createElement("img");
-  img.alt = "forhåndsvisning";
-  img.src = dataUrl;
-  preview.appendChild(img);
-
-  if (!state.photoTarget) return;
-  const machineId = state.photoTarget.machineId;
-  const checkId = state.photoTarget.checkId;
-  const itemEl = state.photoTarget.itemEl;
-  const prev = state.results[machineId].checks[checkId] || {};
-  state.results[machineId].checks[checkId] = Object.assign({}, prev, {
-    photo: dataUrl,
+  bar.classList.remove("hidden");
+  [
+    { id: "oversigt", label: "Oversigt" },
+    { id: "punktvisning", label: "Punktvisning" },
+  ].forEach((opt) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "view-toggle-btn" + (state.viewMode === opt.id ? " active" : "");
+    btn.textContent = opt.label;
+    btn.addEventListener("click", () => {
+      state.viewMode = opt.id;
+      localStorage.setItem(VIEW_PREF_KEY, opt.id);
+      renderViewToggle(executionView);
+      renderGroupBody();
+    });
+    bar.appendChild(btn);
   });
-  const thumb = itemEl.querySelector(".photo-thumb");
-  if (thumb) {
-    const newImg = document.createElement("img");
-    newImg.className = "photo-thumb";
-    newImg.alt = "foto";
-    newImg.src = dataUrl;
-    thumb.replaceWith(newImg);
-  }
 }
 
-function openPhotoModal(existingSrc) {
-  const preview = $("#photo-preview");
-  preview.innerHTML = "";
-  if (existingSrc) {
-    const img = document.createElement("img");
-    img.alt = "forhåndsvisning";
-    img.src = existingSrc;
-    preview.appendChild(img);
+function renderPointCard(point, groupId, valuesOverride, onFieldChange, mode, template) {
+  const card = document.createElement("div");
+  card.className = "point-card";
+  const h4 = document.createElement("h4");
+  h4.textContent = point.label;
+  card.appendChild(h4);
+
+  point.rows.forEach((row) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "field-grid";
+    rowEl.dataset.cols = String(row.columns);
+    row.fields.forEach((field) => {
+      if (!field) return;
+      const value = valuesOverride
+        ? valuesOverride[field.id]
+        : getValue(groupId, point.id, field.id);
+      const node = fields.renderInput(field, value, (v) => onFieldChange(field.id, v), {
+        mode: mode,
+        answerSets: template.embeddedAnswerSets,
+        helpers: helpers,
+      });
+      rowEl.appendChild(node);
+    });
+    card.appendChild(rowEl);
+  });
+
+  return card;
+}
+
+function renderGroupBody() {
+  const template = state.currentTemplate;
+  const group = template.groups[state.currentGroupIdx];
+  const container = $("#check-items");
+  const bottomBar = $("#machine-bottom-bar");
+  container.innerHTML = "";
+
+  function onChangeFor(point) {
+    return (fieldId, value) => {
+      setValue(group.id, point.id, fieldId, value);
+    };
+  }
+
+  if (state.viewMode === "oversigt") {
+    bottomBar.classList.add("hidden");
+    group.points.forEach((point) => {
+      container.appendChild(
+        renderPointCard(point, group.id, null, onChangeFor(point), "execute", template)
+      );
+    });
   } else {
-    const span = document.createElement("span");
-    span.className = "placeholder";
-    span.textContent = "Intet foto";
-    preview.appendChild(span);
+    bottomBar.classList.remove("hidden");
+    if (state.currentPointIdx >= group.points.length) state.currentPointIdx = 0;
+    const point = group.points[state.currentPointIdx];
+    updatePointNav(group);
+    container.appendChild(
+      renderPointCard(point, group.id, null, onChangeFor(point), "execute", template)
+    );
   }
-  $("#photo-modal").classList.remove("hidden");
 }
 
-$$(".photo-file").forEach((input) => {
-  input.addEventListener("change", async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const dataUrl = await fileToJpegDataUrl(file);
-      applyPhotoToUi(dataUrl);
-    } catch (err) {
-      console.error(err);
-      alert("Kunne ikke læse fotoet. Prøv igen eller vælg et andet billede.");
-    }
-  });
+function updatePointNav(group) {
+  const atLast = isAtLastPoint();
+  $("#btn-prev-point").disabled = isAtFirstPoint();
+  $("#btn-next-point").disabled = false;
+  $("#btn-next-point").textContent =
+    atLast && templateComplete(state.currentTemplate) ? "Afslut" : "Næste";
+  $("#point-nav-label").textContent =
+    group.points.length ? state.currentPointIdx + 1 + " / " + group.points.length : "0 / 0";
+}
+
+$("#btn-prev-point").addEventListener("click", () => {
+  stepPoint(-1);
 });
 
-$("#btn-photo-done").addEventListener("click", () => {
-  $("#photo-modal").classList.add("hidden");
-  state.photoTarget = null;
+$("#btn-next-point").addEventListener("click", () => {
+  if (stepPoint(1)) return;
+  if (templateComplete(state.currentTemplate)) {
+    finishTemplate();
+    return;
+  }
+  leaveGroupList();
 });
 
-/* ── Report / PDF ──────────────────────────────────── */
-function buildReportData() {
-  const route = state.currentRoute;
-  let ok = 0,
-    worn = 0,
-    critical = 0,
-    flags = 0;
+/* ── Finish template / report / PDF ───────────────────────── */
+function buildReportData(template, results, userId, when) {
+  const stats = computeStats(template, results);
+  const dateStr = (when ? new Date(when) : new Date()).toLocaleString("da-DK");
+
   const lines = [];
-  const dateStr = new Date().toLocaleString("da-DK");
-
-  lines.push("Inspectra-rapport – " + route.name);
-  lines.push("Kategori: " + categoryLabel(route.category));
-  if (route.zoneLabel) lines.push("Zone: " + route.zoneLabel);
-  lines.push("Arbejds-ID: " + state.userId);
+  lines.push("Inspectra-rapport – " + template.name);
+  lines.push("Kategori: " + categoryLabel(template.category));
+  if (template.zoneLabel) lines.push("Zone: " + template.zoneLabel);
+  lines.push("Reference-ID: " + template.referenceId + " · v" + template.version);
+  lines.push("Arbejds-ID: " + userId);
   lines.push("Dato: " + dateStr);
   lines.push("");
 
-  route.machines.forEach((m) => {
-    lines.push("── " + m.name + " (" + m.location + ") ──");
-    m.checks.forEach((c) => {
-      const d = state.results[m.id].checks[c.id] || {};
-      const st = d.status || "?";
-      if (st === STATUS.OK || st === STATUS.DONE) ok++;
-      else if (st === STATUS.WORN || st === STATUS.SKIP) worn++;
-      else if (st === STATUS.CRITICAL || st === STATUS.ISSUE) critical++;
-      if (d.flagReplace) flags++;
-
-      let line = "  " + c.label + ": " + (STATUS_LABEL[st] || st);
-      if (d.note) line += " – " + d.note;
-      if (d.flagReplace) line += " [MARKÉRET TIL UDSKIFTNING]";
-      if (d.photo) line += " [foto]";
-      lines.push(line);
+  template.groups.forEach((g) => {
+    lines.push("── " + g.name + " (" + g.location + ") ──");
+    g.points.forEach((p) => {
+      lines.push("  " + p.label + ":");
+      const values = ((results[g.id] || {})[p.id] || {}).values || {};
+      allFields(p).forEach((f) => {
+        const formatted = fields.formatValueForPdf(f, values[f.id], template.embeddedAnswerSets);
+        if (formatted.kind === "text" && formatted.text) {
+          lines.push("    " + f.label + ": " + formatted.text);
+        } else if (formatted.kind === "images") {
+          lines.push("    " + f.label + ": [" + formatted.images.length + " foto]");
+        } else if (formatted.kind === "image") {
+          lines.push("    " + f.label + ": [billede]");
+        }
+      });
     });
     lines.push("");
   });
 
-  const cleaning = isCleaning(route);
-  const sumA = cleaning ? "Udført" : "OK";
-  const sumB = cleaning ? "Ikke aktuelt" : "Slidt";
-  const sumC = cleaning ? "Afvigelse" : "Kritisk";
   lines.push(
-    "Opsummering: " +
-      sumA +
-      "=" +
-      ok +
-      "  " +
-      sumB +
-      "=" +
-      worn +
-      "  " +
-      sumC +
-      "=" +
-      critical +
-      (cleaning ? "" : "  Markeret=" + flags)
+    "Opsummering: Påkrævede felter udfyldt " +
+      stats.filledRequired +
+      "/" +
+      stats.totalRequired +
+      "  Fotos=" +
+      stats.photoCount +
+      "  Signaturer=" +
+      stats.signatureCount
   );
 
-  const safeName = route.name
-    .replace(/[^a-zA-Z0-9æøåÆØÅ_ -]/g, "")
-    .replace(/\s+/g, "_");
+  const safeName = template.name.replace(/[^a-zA-Z0-9æøåÆØÅ_ -]/g, "").replace(/\s+/g, "_");
   const filename =
-    "Inspectra_" +
-    safeName +
-    "_" +
-    new Date().toISOString().slice(0, 10) +
-    "_" +
-    state.userId +
-    ".pdf";
+    "Inspectra_" + safeName + "_" + new Date().toISOString().slice(0, 10) + "_" + userId + ".pdf";
 
-  return {
-    route: route,
-    ok: ok,
-    worn: worn,
-    critical: critical,
-    flags: flags,
-    lines: lines,
-    dateStr: dateStr,
-    filename: filename,
-  };
+  return { template, results, userId, stats, lines, dateStr, filename };
 }
 
 async function generatePdf(report) {
@@ -743,6 +900,8 @@ async function generatePdf(report) {
     }
   }
 
+  const template = report.template;
+
   doc.setFillColor(0, 0, 0);
   doc.rect(0, 0, pageW, 28, "F");
   doc.setTextColor(255, 255, 255);
@@ -751,16 +910,10 @@ async function generatePdf(report) {
   doc.text("INSPECTRA", margin, 14);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text(
-    report.route.category === "rengoring"
-      ? "Rengoringsrapport"
-      : "Maskineinspektionsrapport",
-    margin,
-    21
-  );
+  doc.text(categoryLabel(template.category) + "-rapport", margin, 21);
   doc.setFontSize(8);
   doc.text(report.dateStr, pageW - margin, 14, { align: "right" });
-  doc.text(report.route.name, pageW - margin, 21, { align: "right" });
+  doc.text(template.name, pageW - margin, 21, { align: "right" });
 
   y = 36;
   doc.setTextColor(0, 0, 0);
@@ -770,194 +923,139 @@ async function generatePdf(report) {
   y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text("Arbejds-ID: " + state.userId, margin, y);
+  doc.text("Arbejds-ID: " + report.userId, margin, y);
   y += 5;
-  doc.text("Kategori: " + categoryLabel(report.route.category), margin, y);
+  doc.text("Reference-ID: " + template.referenceId + " · v" + template.version, margin, y);
   y += 5;
-  doc.text("Rute: " + report.route.name, margin, y);
+  doc.text("Kategori: " + categoryLabel(template.category), margin, y);
   y += 5;
-  if (report.route.zoneLabel) {
-    doc.text("Zone: " + report.route.zoneLabel, margin, y);
+  if (template.zoneLabel) {
+    doc.text("Zone: " + template.zoneLabel, margin, y);
     y += 5;
   }
-  doc.text("Plan: " + scheduleLabel(report.route.schedule), margin, y);
-  y += 5;
-  const countLabel =
-    report.route.category === "rengoring" ? "Omrader: " : "Maskiner: ";
-  doc.text(countLabel + String(report.route.machines.length), margin, y);
+  doc.text("Plan: " + scheduleLabel(template.schedule), margin, y);
   y += 10;
 
   doc.setDrawColor(0);
   doc.setLineWidth(0.3);
-  doc.rect(margin, y, contentW, 18);
+  doc.rect(margin, y, contentW, 14);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.text("Opsummering", margin + 3, y + 6);
   doc.setFont("helvetica", "normal");
-  const cleaning = isCleaning(report.route);
-  const sumLine = cleaning
-    ? "Udfoert: " +
-      report.ok +
-      "    Ikke aktuelt: " +
-      report.worn +
-      "    Afvigelse: " +
-      report.critical
-    : "OK: " +
-      report.ok +
-      "    Slidt: " +
-      report.worn +
-      "    Kritisk: " +
-      report.critical +
-      "    Markeret til udskiftning: " +
-      report.flags;
-  doc.text(sumLine, margin + 3, y + 13);
-  y += 26;
+  doc.text(
+    "Påkrævede felter udfyldt: " +
+      report.stats.filledRequired +
+      "/" +
+      report.stats.totalRequired +
+      "    Fotos: " +
+      report.stats.photoCount +
+      "    Signaturer: " +
+      report.stats.signatureCount,
+    margin + 3,
+    y + 11
+  );
+  y += 22;
 
-  for (let mi = 0; mi < report.route.machines.length; mi++) {
-    const m = report.route.machines[mi];
-    ensureSpace(30);
+  template.groups.forEach((g) => {
+    ensureSpace(20);
     doc.setFillColor(0, 0, 0);
     doc.rect(margin, y, contentW, 7, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
-    doc.text(m.name + "  ·  " + m.location, margin + 2, y + 5);
+    doc.text(g.name + "  ·  " + g.location, margin + 2, y + 5);
     doc.setTextColor(0, 0, 0);
     y += 10;
 
-    for (let ci = 0; ci < m.checks.length; ci++) {
-      const c = m.checks[ci];
-      const d = state.results[m.id].checks[c.id] || {};
-      const st = STATUS_LABEL[d.status] || d.status || "–";
-      ensureSpace(d.photo ? 42 : 14);
-
+    g.points.forEach((p) => {
+      ensureSpace(10);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
-      doc.text(c.label, margin, y);
+      doc.text(p.label, margin, y);
+      y += 5;
       doc.setFont("helvetica", "normal");
-      doc.text(st, pageW - margin, y, { align: "right" });
-      y += 4.5;
 
-      if (d.note) {
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-        const noteLines = doc.splitTextToSize("Bemærkning: " + d.note, contentW - 4);
-        doc.text(noteLines, margin + 2, y);
-        y += noteLines.length * 3.8;
-        doc.setTextColor(0, 0, 0);
-      }
-      if (d.flagReplace) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.text("MARKÉRET TIL UDSKIFTNING", margin + 2, y);
-        y += 4;
-        doc.setFont("helvetica", "normal");
-      }
-      if (d.photo) {
-        try {
-          const imgW = 45;
-          const imgH = 34;
-          ensureSpace(imgH + 4);
-          doc.addImage(d.photo, "JPEG", margin + 2, y, imgW, imgH);
-          y += imgH + 3;
-        } catch (err) {
+      const values = ((report.results[g.id] || {})[p.id] || {}).values || {};
+      allFields(p).forEach((f) => {
+        const formatted = fields.formatValueForPdf(f, values[f.id], template.embeddedAnswerSets);
+        if (formatted.kind === "none") return;
+        if (formatted.kind === "heading") {
+          ensureSpace(8);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.text(formatted.text, margin + 2, y);
+          y += 5;
+          doc.setFont("helvetica", "normal");
+        } else if (formatted.kind === "text") {
+          ensureSpace(6);
           doc.setFontSize(8);
-          doc.setTextColor(100, 100, 100);
-          doc.text("[Foto kunne ikke indlejres]", margin + 2, y);
-          doc.setTextColor(0, 0, 0);
-          y += 4;
+          const textLines = doc.splitTextToSize(f.label + ": " + formatted.text, contentW - 4);
+          doc.text(textLines, margin + 2, y);
+          y += textLines.length * 3.8;
+        } else if (formatted.kind === "image" || formatted.kind === "images") {
+          (formatted.images || []).forEach((src) => {
+            try {
+              const imgW = 45;
+              const imgH = 34;
+              ensureSpace(imgH + 4);
+              doc.addImage(src, "JPEG", margin + 2, y, imgW, imgH);
+              y += imgH + 3;
+            } catch (err) {
+              doc.setFontSize(8);
+              doc.setTextColor(100, 100, 100);
+              doc.text("[Billede kunne ikke indlejres]", margin + 2, y);
+              doc.setTextColor(0, 0, 0);
+              y += 4;
+            }
+          });
         }
-      }
+      });
 
       doc.setDrawColor(200);
       doc.setLineWidth(0.15);
       doc.line(margin, y, pageW - margin, y);
       y += 5;
-    }
+    });
     y += 4;
-  }
+  });
 
   const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(7);
     doc.setTextColor(120, 120, 120);
-    doc.text(
-      "Inspectra · Tøf inspektion · Virksomheden",
-      margin,
-      290
-    );
-    doc.text("Side " + i + " / " + pageCount, pageW - margin, 290, {
-      align: "right",
-    });
+    doc.text("Inspectra · " + template.referenceId + " v" + template.version, margin, 290);
+    doc.text("Side " + i + " / " + pageCount, pageW - margin, 290, { align: "right" });
   }
 
   return doc;
 }
 
-/* ── Finish ────────────────────────────────────────── */
-function canSharePdf(file) {
-  if (!navigator.share || !navigator.canShare || typeof File === "undefined") {
-    return false;
-  }
-  try {
-    const probe =
-      file ||
-      new File(["%PDF-1.0"], "probe.pdf", { type: "application/pdf" });
-    return navigator.canShare({ files: [probe] });
-  } catch (err) {
-    return false;
-  }
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function () {
-    URL.revokeObjectURL(url);
-  }, 2500);
-}
-
-function reportMailParts() {
-  return {
-    subject: "Inspectra: " + state.lastReport.route.name + " – " + state.userId,
-    body: state.lastReport.lines.join("\n"),
-  };
-}
-
-function mailtoButtonLabel() {
-  return canSharePdf()
-    ? "Send via e-mail"
-    : "Send via e-mail (PDF downloades først)";
-}
-
-function setReportActionsReady(ready) {
-  const download = $("#btn-download-pdf");
-  const mailto = $("#btn-mailto");
-  const share = $("#btn-share");
-  download.disabled = !ready;
-  mailto.disabled = !ready;
-  share.disabled = !ready;
-  download.textContent = ready ? "Download PDF-rapport" : "Genererer PDF…";
-  mailto.textContent = ready ? mailtoButtonLabel() : "Forbereder…";
-}
-
-$("#btn-finish-route").addEventListener("click", () => {
-  markRouteDone(state.currentRoute);
-  const report = buildReportData();
+function finishTemplate() {
+  const template = state.currentTemplate;
+  markTemplateDone(template);
+  const finishedAt = new Date().toISOString();
+  const report = buildReportData(template, state.results, state.userId, finishedAt);
   state.lastReport = report;
   state.lastPdf = null;
+
+  const historyEntry = {
+    id: "hist-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36),
+    templateSnapshot: clone(template),
+    referenceId: template.referenceId,
+    version: template.version,
+    userId: state.userId,
+    startedAt: finishedAt,
+    finishedAt: finishedAt,
+    results: clone(state.results),
+  };
+  store.addHistoryEntry(historyEntry);
 
   const card = $("#summary-card");
   card.innerHTML = "";
   const h3 = document.createElement("h3");
-  h3.textContent = report.route.name;
+  h3.textContent = report.template.name;
   card.appendChild(h3);
 
   function addStat(label, value) {
@@ -972,22 +1070,12 @@ $("#btn-finish-route").addEventListener("click", () => {
     card.appendChild(row);
   }
   addStat("Arbejds-ID", state.userId);
-  addStat("Kategori", categoryLabel(report.route.category));
-  if (report.route.zoneLabel) addStat("Zone", report.route.zoneLabel);
-  addStat(
-    report.route.category === "rengoring" ? "Områder" : "Maskiner",
-    report.route.machines.length
-  );
-  if (isCleaning(report.route)) {
-    addStat("Udført", report.ok);
-    addStat("Ikke aktuelt", report.worn);
-    addStat("Afvigelse", report.critical);
-  } else {
-    addStat("OK", report.ok);
-    addStat("Slidt", report.worn);
-    addStat("Kritisk", report.critical);
-    addStat("Markeret til udskiftning", report.flags);
-  }
+  addStat("Kategori", categoryLabel(report.template.category));
+  if (report.template.zoneLabel) addStat("Zone", report.template.zoneLabel);
+  addStat(itemNoun(report.template, true), report.template.groups.length);
+  addStat("Påkrævede felter udfyldt", report.stats.filledRequired + "/" + report.stats.totalRequired);
+  addStat("Fotos", report.stats.photoCount);
+  addStat("Signaturer", report.stats.signatureCount);
 
   const shareBtn = $("#btn-share");
   if (navigator.share) shareBtn.classList.remove("hidden");
@@ -1008,20 +1096,18 @@ $("#btn-finish-route").addEventListener("click", () => {
       $("#btn-share").disabled = true;
       alert("Kunne ikke generere PDF. " + (err.message || "Prøv igen."));
     });
-});
+}
 
 async function buildPdfFile() {
   const doc = await generatePdf(state.lastReport);
   const blob = doc.output("blob");
   let file = null;
   try {
-    file = new File([blob], state.lastReport.filename, {
-      type: "application/pdf",
-    });
+    file = new File([blob], state.lastReport.filename, { type: "application/pdf" });
   } catch (err) {
     file = null;
   }
-  return { doc: doc, blob: blob, file: file };
+  return { doc, blob, file };
 }
 
 async function ensurePdf() {
@@ -1029,6 +1115,28 @@ async function ensurePdf() {
   const result = await buildPdfFile();
   state.lastPdf = result;
   return result;
+}
+
+function reportMailParts() {
+  return {
+    subject: "Inspectra: " + state.lastReport.template.name + " – " + state.userId,
+    body: state.lastReport.lines.join("\n"),
+  };
+}
+
+function mailtoButtonLabel() {
+  return canSharePdf() ? "Send via e-mail" : "Send via e-mail (PDF downloades først)";
+}
+
+function setReportActionsReady(ready) {
+  const download = $("#btn-download-pdf");
+  const mailto = $("#btn-mailto");
+  const share = $("#btn-share");
+  download.disabled = !ready;
+  mailto.disabled = !ready;
+  share.disabled = !ready;
+  download.textContent = ready ? "Download PDF-rapport" : "Genererer PDF…";
+  mailto.textContent = ready ? mailtoButtonLabel() : "Forbereder…";
 }
 
 $("#btn-download-pdf").addEventListener("click", async () => {
@@ -1047,53 +1155,26 @@ $("#btn-download-pdf").addEventListener("click", async () => {
   }
 });
 
-async function sharePdfFile(file, title, text) {
-  const full = { files: [file], title: title, text: text };
-  if (navigator.canShare(full)) {
-    await navigator.share(full);
-    return true;
-  }
-  const filesOnly = { files: [file], title: title };
-  if (navigator.canShare(filesOnly)) {
-    await navigator.share(filesOnly);
-    return true;
-  }
-  return false;
-}
-
-/* mailto: cannot attach files. On phones, Web Share puts the PDF in Mail. */
 $("#btn-mailto").addEventListener("click", async () => {
   if (!state.lastReport || !state.lastPdf) return;
-
   const mail = reportMailParts();
   const result = state.lastPdf;
-
   try {
     if (result.file && canSharePdf(result.file)) {
-      const shared = await sharePdfFile(
-        result.file,
-        mail.subject,
-        mail.body
-      );
+      const shared = await sharePdfFile(result.file, mail.subject, mail.body);
       if (shared) return;
     }
-
     downloadBlob(result.blob, state.lastReport.filename);
     alert(
-      "PDF er gemt som \"" +
+      'PDF er gemt som "' +
         state.lastReport.filename +
-        "\".\nTryk OK, og vedhæft filen i mailen før du sender."
+        '".\nTryk OK, og vedhæft filen i mailen før du sender.'
     );
     window.location.href =
       "mailto:?subject=" +
       encodeURIComponent(mail.subject) +
       "&body=" +
-      encodeURIComponent(
-        mail.body +
-          "\n\n---\nVedhæft filen \"" +
-          state.lastReport.filename +
-          "\"."
-      );
+      encodeURIComponent(mail.body + '\n\n---\nVedhæft filen "' + state.lastReport.filename + '".');
   } catch (err) {
     if (err && err.name === "AbortError") return;
     console.error(err);
@@ -1109,7 +1190,7 @@ $("#btn-share").addEventListener("click", async () => {
       const shared = await sharePdfFile(
         result.file,
         state.lastReport.filename,
-        "Inspectra rapport: " + state.lastReport.route.name
+        "Inspectra rapport: " + state.lastReport.template.name
       );
       if (shared) return;
     }
@@ -1117,9 +1198,7 @@ $("#btn-share").addEventListener("click", async () => {
       downloadBlob(result.blob, state.lastReport.filename);
       await navigator.share({
         title: state.lastReport.filename,
-        text:
-          state.lastReport.lines.join("\n") +
-          "\n\n(PDF er downloadet – vedhæft den manuelt)",
+        text: state.lastReport.lines.join("\n") + "\n\n(PDF er downloadet – vedhæft den manuelt)",
       });
     } else {
       downloadBlob(result.blob, state.lastReport.filename);
@@ -1131,10 +1210,23 @@ $("#btn-share").addEventListener("click", async () => {
 });
 
 $("#btn-new-route").addEventListener("click", () => {
-  state.currentRoute = null;
+  state.currentTemplate = null;
   state.results = {};
   state.lastReport = null;
   state.lastPdf = null;
-  renderRoutes();
+  renderDashboard();
   showView("view-dashboard");
 });
+
+/* ── Boot ──────────────────────────────────────────────────── */
+(async function boot() {
+  await ensureTemplatesInstalled();
+  if (state.userId) {
+    $("#user-id").value = state.userId;
+    $("#user-label").textContent = state.userId;
+    renderDashboard();
+    showView("view-dashboard");
+  } else {
+    showView("view-login");
+  }
+})();

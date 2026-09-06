@@ -1,0 +1,17 @@
+{
+  "name": "Inspectra Kontrolværktøj",
+  "short_name": "Inspectra Byg",
+  "description": "Byg kontrolskabeloner til Inspectra",
+  "start_url": "./builder.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "da",
+  "icons": [
+    { "src": "src/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "src/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "src/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
