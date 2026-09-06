@@ -1,13 +1,106 @@
 import { ROUTES, STATUS, STATUS_LABEL } from "./data.js";
 
+const CATEGORY_KEY = "inspectra_category";
+const DONE_KEY = "inspectra_done";
+
 const state = {
   userId: localStorage.getItem("inspectra_user") || "",
+  category: localStorage.getItem(CATEGORY_KEY) || "maskiner",
   currentRoute: null,
   currentMachineIdx: null,
   results: {},
   photoTarget: null,
   lastReport: null,
+  lastPdf: null,
 };
+
+function categoryLabel(cat) {
+  return cat === "rengoring" ? "Rengøring" : "Maskiner";
+}
+
+function isCleaning(route) {
+  return (route || state.currentRoute || {}).category === "rengoring";
+}
+
+function checkChoices(route) {
+  if (isCleaning(route)) {
+    return [
+      { id: STATUS.DONE, label: "Udført", cls: "ok" },
+      { id: STATUS.SKIP, label: "Ikke aktuelt", cls: "worn" },
+      { id: STATUS.ISSUE, label: "Afvigelse", cls: "critical" },
+    ];
+  }
+  return [
+    { id: STATUS.OK, label: "OK", cls: "ok" },
+    { id: STATUS.WORN, label: "Slidt", cls: "worn" },
+    { id: STATUS.CRITICAL, label: "Kritisk", cls: "critical" },
+  ];
+}
+
+function itemNoun(route) {
+  return isCleaning(route) ? "områder" : "maskiner";
+}
+
+function periodKey(schedule, date) {
+  const d = date || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  if (schedule === "weekly") {
+    const t = new Date(y, d.getMonth(), d.getDate());
+    const dow = t.getDay() || 7;
+    t.setDate(t.getDate() + 4 - dow);
+    const weekYear = t.getFullYear();
+    const yearStart = new Date(weekYear, 0, 1);
+    const week = Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
+    return weekYear + "-W" + String(week).padStart(2, "0");
+  }
+  if (schedule === "monthly") return y + "-" + m;
+  if (schedule === "yearly") return String(y);
+  return y + "-" + m + "-" + day;
+}
+
+function loadDoneMap() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DONE_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function isRouteDone(route) {
+  if (!route || !state.userId) return false;
+  const rec = (loadDoneMap()[state.userId] || {})[route.id];
+  return !!(rec && rec.period === periodKey(route.schedule));
+}
+
+function markRouteDone(route) {
+  if (!route || !state.userId) return;
+  const all = loadDoneMap();
+  if (!all[state.userId]) all[state.userId] = {};
+  all[state.userId][route.id] = {
+    period: periodKey(route.schedule),
+    at: new Date().toISOString(),
+  };
+  localStorage.setItem(DONE_KEY, JSON.stringify(all));
+}
+
+function needsPhoto(status) {
+  return status === STATUS.WORN || status === STATUS.CRITICAL;
+}
+
+function needsNote(status) {
+  return (
+    status === STATUS.WORN ||
+    status === STATUS.CRITICAL ||
+    status === STATUS.ISSUE
+  );
+}
+
+function showsNoteArea(status) {
+  return needsNote(status);
+}
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -74,6 +167,14 @@ if (state.userId) {
 /* ── Routes ────────────────────────────────────────── */
 $("#schedule-filter").addEventListener("change", renderRoutes);
 
+document.querySelectorAll(".category-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.category = btn.dataset.category;
+    localStorage.setItem(CATEGORY_KEY, state.category);
+    renderRoutes();
+  });
+});
+
 function scheduleLabel(s) {
   const map = { daily: "Daglig", weekly: "Ugentlig", monthly: "Månedlig", yearly: "Årlig" };
   return map[s] || s;
@@ -82,10 +183,22 @@ function scheduleLabel(s) {
 function renderRoutes() {
   const filter = $("#schedule-filter").value;
   const list = $("#route-list");
+  const mapPanel = $("#rengoring-map");
   list.innerHTML = "";
 
-  const filtered =
-    filter === "all" ? ROUTES : ROUTES.filter((r) => r.schedule === filter);
+  $$(".category-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.category === state.category);
+  });
+
+  if (mapPanel) {
+    mapPanel.classList.toggle("hidden", state.category !== "rengoring");
+  }
+
+  const filtered = ROUTES.filter((r) => {
+    const catOk = (r.category || "maskiner") === state.category;
+    const schedOk = filter === "all" || r.schedule === filter;
+    return catOk && schedOk;
+  });
 
   if (filtered.length === 0) {
     list.innerHTML =
@@ -95,7 +208,8 @@ function renderRoutes() {
 
   filtered.forEach((route) => {
     const card = document.createElement("div");
-    card.className = "route-card";
+    const done = isRouteDone(route);
+    card.className = "route-card" + (done ? " done" : "");
 
     const h3 = document.createElement("h3");
     h3.textContent = route.name;
@@ -109,12 +223,23 @@ function renderRoutes() {
     const meta = document.createElement("div");
     meta.className = "route-meta";
     const s1 = document.createElement("span");
-    s1.textContent = route.machines.length + " maskiner";
+    s1.textContent = route.machines.length + " " + itemNoun(route);
     const s2 = document.createElement("span");
     s2.className = "sched-tag";
     s2.textContent = scheduleLabel(route.schedule);
     meta.appendChild(s1);
     meta.appendChild(s2);
+    if (route.zoneLabel) {
+      const s3 = document.createElement("span");
+      s3.textContent = route.zoneLabel;
+      meta.appendChild(s3);
+    }
+    if (done) {
+      const sDone = document.createElement("span");
+      sDone.className = "done-tag";
+      sDone.textContent = "Udført";
+      meta.appendChild(sDone);
+    }
     card.appendChild(meta);
 
     card.addEventListener("click", () => startRoute(route));
@@ -134,7 +259,10 @@ function startRoute(route) {
   showView("view-route");
 }
 
-$("#btn-back-routes").addEventListener("click", () => showView("view-dashboard"));
+$("#btn-back-routes").addEventListener("click", () => {
+  renderRoutes();
+  showView("view-dashboard");
+});
 
 function renderMachineSteps() {
   const container = $("#machine-steps");
@@ -147,16 +275,20 @@ function renderMachineSteps() {
     const checks = Object.values(res.checks);
     const isDone =
       checks.length === machine.checks.length && checks.every((c) => c.status);
-    const hasCritical = checks.some((c) => c.status === STATUS.CRITICAL);
-    const hasWorn = checks.some((c) => c.status === STATUS.WORN);
+    const hasIssue = checks.some(
+      (c) => c.status === STATUS.CRITICAL || c.status === STATUS.ISSUE
+    );
+    const hasWarn = checks.some(
+      (c) => c.status === STATUS.WORN || c.status === STATUS.SKIP
+    );
     if (isDone) doneCount++;
 
     let cls = "machine-card";
-    if (hasCritical) cls += " critical";
-    else if (hasWorn) cls += " worn";
+    if (hasIssue) cls += " critical";
+    else if (hasWarn) cls += " worn";
     else if (isDone) cls += " done";
 
-    const statusIcon = hasCritical ? "!" : hasWorn ? "–" : isDone ? "✓" : String(idx + 1);
+    const statusIcon = hasIssue ? "!" : hasWarn ? "–" : isDone ? "✓" : String(idx + 1);
 
     const card = document.createElement("div");
     card.className = cls;
@@ -171,7 +303,11 @@ function renderMachineSteps() {
     const h3 = document.createElement("h3");
     h3.textContent = machine.name;
     const p = document.createElement("p");
-    p.textContent = machine.location + " · " + machine.checks.length + " kontrolpunkter";
+    p.textContent =
+      machine.location +
+      " · " +
+      machine.checks.length +
+      (isCleaning(route) ? " opgaver" : " kontrolpunkter");
     info.appendChild(h3);
     info.appendChild(p);
     card.appendChild(info);
@@ -181,7 +317,8 @@ function renderMachineSteps() {
   });
 
   const total = route.machines.length;
-  $("#route-progress").textContent = doneCount + " / " + total + " maskiner";
+  $("#route-progress").textContent =
+    doneCount + " / " + total + " " + itemNoun(route);
   $("#progress-fill").style.width = (doneCount / total) * 100 + "%";
   $("#btn-finish-route").disabled = doneCount < total;
 }
@@ -213,8 +350,7 @@ function renderCheckItems(machine) {
       photo: null,
       flagReplace: false,
     };
-    const needsDoc =
-      data.status === STATUS.WORN || data.status === STATUS.CRITICAL;
+    const needsDoc = showsNoteArea(data.status);
 
     const item = document.createElement("div");
     item.className = "check-item";
@@ -226,13 +362,14 @@ function renderCheckItems(machine) {
 
     const statusRow = document.createElement("div");
     statusRow.className = "status-row";
-    ["ok", "worn", "critical"].forEach((s) => {
+    const cleaning = isCleaning();
+    checkChoices().forEach((opt) => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "status-btn " + s + (data.status === s ? " active" : "");
-      btn.dataset.s = s;
-      btn.textContent =
-        s === "ok" ? "OK" : s === "worn" ? "Slidt" : "Kritisk";
+      btn.className =
+        "status-btn " + opt.cls + (data.status === opt.id ? " active" : "");
+      btn.dataset.s = opt.id;
+      btn.textContent = opt.label;
       btn.addEventListener("click", () => {
         statusRow.querySelectorAll(".status-btn").forEach((b) =>
           b.classList.remove("active")
@@ -240,13 +377,15 @@ function renderCheckItems(machine) {
         btn.classList.add("active");
         const noteArea = item.querySelector(".note-area");
         const flagRow = item.querySelector(".flag-row");
-        if (s === "ok") {
-          noteArea.classList.remove("visible");
-          flagRow.classList.add("hidden");
-        } else {
+        if (showsNoteArea(opt.id)) {
           noteArea.classList.add("visible");
-          if (s === "critical") flagRow.classList.remove("hidden");
-          else flagRow.classList.add("hidden");
+        } else {
+          noteArea.classList.remove("visible");
+        }
+        if (!cleaning && opt.id === STATUS.CRITICAL) {
+          flagRow.classList.remove("hidden");
+        } else {
+          flagRow.classList.add("hidden");
         }
         saveCheckState(machine.id, check.id, item);
       });
@@ -255,10 +394,13 @@ function renderCheckItems(machine) {
     item.appendChild(statusRow);
 
     const noteArea = document.createElement("div");
-    noteArea.className = "note-area" + (needsDoc ? " visible" : "");
+    noteArea.className =
+      "note-area" + (needsDoc ? " visible" : "");
 
     const textarea = document.createElement("textarea");
-    textarea.placeholder = "Bemærkning / observation…";
+    textarea.placeholder = cleaning
+      ? "Bemærkning…"
+      : "Bemærkning / observation…";
     textarea.value = data.note || "";
     textarea.addEventListener("input", () =>
       saveCheckState(machine.id, check.id, item)
@@ -277,14 +419,14 @@ function renderCheckItems(machine) {
     } else {
       const empty = document.createElement("div");
       empty.className = "photo-thumb empty";
-      empty.textContent = "Foto";
+      empty.textContent = cleaning ? "Valgfrit" : "Foto";
       photoRow.appendChild(empty);
     }
 
     const photoBtn = document.createElement("button");
     photoBtn.type = "button";
     photoBtn.className = "btn secondary small btn-photo";
-    photoBtn.textContent = "Tag / vælg foto";
+    photoBtn.textContent = cleaning ? "Foto (valgfrit)" : "Tag / vælg foto";
     photoBtn.addEventListener("click", () => {
       state.photoTarget = {
         machineId: machine.id,
@@ -298,7 +440,8 @@ function renderCheckItems(machine) {
 
     const flagRow = document.createElement("div");
     flagRow.className =
-      "flag-row" + (data.status === "critical" ? "" : " hidden");
+      "flag-row" +
+      (cleaning || data.status !== STATUS.CRITICAL ? " hidden" : "");
     const flagCb = document.createElement("input");
     flagCb.type = "checkbox";
     flagCb.className = "flag-replace";
@@ -350,11 +493,11 @@ $("#btn-save-machine").addEventListener("click", () => {
   for (let i = 0; i < machine.checks.length; i++) {
     const c = machine.checks[i];
     const d = state.results[machine.id].checks[c.id];
-    if ((d.status === "worn" || d.status === "critical") && !d.photo) {
+    if (needsPhoto(d.status) && !d.photo) {
       alert('Foto påkrævet for "' + c.label + '" (' + STATUS_LABEL[d.status] + ")");
       return;
     }
-    if ((d.status === "worn" || d.status === "critical") && !(d.note || "").trim()) {
+    if (needsNote(d.status) && !(d.note || "").trim()) {
       alert('Bemærkning påkrævet for "' + c.label + '"');
       return;
     }
@@ -365,6 +508,80 @@ $("#btn-save-machine").addEventListener("click", () => {
 });
 
 /* ── Photo modal ───────────────────────────────────── */
+function applyPhotoToUi(dataUrl) {
+  const preview = $("#photo-preview");
+  preview.innerHTML = "";
+  const img = document.createElement("img");
+  img.alt = "forhåndsvisning";
+  img.src = dataUrl;
+  preview.appendChild(img);
+
+  if (!state.photoTarget) return;
+  const machineId = state.photoTarget.machineId;
+  const checkId = state.photoTarget.checkId;
+  const itemEl = state.photoTarget.itemEl;
+  const prev = state.results[machineId].checks[checkId] || {};
+  state.results[machineId].checks[checkId] = Object.assign({}, prev, {
+    photo: dataUrl,
+  });
+  const thumb = itemEl.querySelector(".photo-thumb");
+  if (thumb) {
+    const newImg = document.createElement("img");
+    newImg.className = "photo-thumb";
+    newImg.alt = "foto";
+    newImg.src = dataUrl;
+    thumb.replaceWith(newImg);
+  }
+}
+
+async function fileToJpegDataUrl(file) {
+  const maxEdge = 1600;
+  const quality = 0.82;
+
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      return canvas.toDataURL("image/jpeg", quality);
+    }
+  } catch (err) {
+    /* fall through */
+  }
+
+  return new Promise(function (resolve, reject) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function () {
+      const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = function () {
+      URL.revokeObjectURL(url);
+      const reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
+  });
+}
+
 function openPhotoModal(existingSrc) {
   const preview = $("#photo-preview");
   preview.innerHTML = "";
@@ -382,43 +599,19 @@ function openPhotoModal(existingSrc) {
   $("#photo-modal").classList.remove("hidden");
 }
 
-$("#btn-take-photo").addEventListener("click", () => {
-  $("#photo-input").click();
-});
-
-$("#photo-input").addEventListener("change", (e) => {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    const preview = $("#photo-preview");
-    preview.innerHTML = "";
-    const img = document.createElement("img");
-    img.alt = "forhåndsvisning";
-    img.src = dataUrl;
-    preview.appendChild(img);
-
-    if (state.photoTarget) {
-      const machineId = state.photoTarget.machineId;
-      const checkId = state.photoTarget.checkId;
-      const itemEl = state.photoTarget.itemEl;
-      const prev = state.results[machineId].checks[checkId] || {};
-      state.results[machineId].checks[checkId] = Object.assign({}, prev, {
-        photo: dataUrl,
-      });
-      const thumb = itemEl.querySelector(".photo-thumb");
-      if (thumb) {
-        const newImg = document.createElement("img");
-        newImg.className = "photo-thumb";
-        newImg.alt = "foto";
-        newImg.src = dataUrl;
-        thumb.replaceWith(newImg);
-      }
+$$(".photo-file").forEach((input) => {
+  input.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const dataUrl = await fileToJpegDataUrl(file);
+      applyPhotoToUi(dataUrl);
+    } catch (err) {
+      console.error(err);
+      alert("Kunne ikke læse fotoet. Prøv igen eller vælg et andet billede.");
     }
-  };
-  reader.readAsDataURL(file);
-  e.target.value = "";
+  });
 });
 
 $("#btn-photo-done").addEventListener("click", () => {
@@ -437,6 +630,8 @@ function buildReportData() {
   const dateStr = new Date().toLocaleString("da-DK");
 
   lines.push("Inspectra-rapport – " + route.name);
+  lines.push("Kategori: " + categoryLabel(route.category));
+  if (route.zoneLabel) lines.push("Zone: " + route.zoneLabel);
   lines.push("Arbejds-ID: " + state.userId);
   lines.push("Dato: " + dateStr);
   lines.push("");
@@ -446,9 +641,9 @@ function buildReportData() {
     m.checks.forEach((c) => {
       const d = state.results[m.id].checks[c.id] || {};
       const st = d.status || "?";
-      if (st === "ok") ok++;
-      else if (st === "worn") worn++;
-      else if (st === "critical") critical++;
+      if (st === STATUS.OK || st === STATUS.DONE) ok++;
+      else if (st === STATUS.WORN || st === STATUS.SKIP) worn++;
+      else if (st === STATUS.CRITICAL || st === STATUS.ISSUE) critical++;
       if (d.flagReplace) flags++;
 
       let line = "  " + c.label + ": " + (STATUS_LABEL[st] || st);
@@ -460,15 +655,24 @@ function buildReportData() {
     lines.push("");
   });
 
+  const cleaning = isCleaning(route);
+  const sumA = cleaning ? "Udført" : "OK";
+  const sumB = cleaning ? "Ikke aktuelt" : "Slidt";
+  const sumC = cleaning ? "Afvigelse" : "Kritisk";
   lines.push(
-    "Opsummering: OK=" +
+    "Opsummering: " +
+      sumA +
+      "=" +
       ok +
-      "  Slidt=" +
+      "  " +
+      sumB +
+      "=" +
       worn +
-      "  Kritisk=" +
+      "  " +
+      sumC +
+      "=" +
       critical +
-      "  Markeret=" +
-      flags
+      (cleaning ? "" : "  Markeret=" + flags)
   );
 
   const safeName = route.name
@@ -521,7 +725,13 @@ async function generatePdf(report) {
   doc.text("INSPECTRA", margin, 14);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text("Ruteinspektionsrapport", margin, 21);
+  doc.text(
+    report.route.category === "rengoring"
+      ? "Rengoringsrapport"
+      : "Maskineinspektionsrapport",
+    margin,
+    21
+  );
   doc.setFontSize(8);
   doc.text(report.dateStr, pageW - margin, 14, { align: "right" });
   doc.text(report.route.name, pageW - margin, 21, { align: "right" });
@@ -536,11 +746,19 @@ async function generatePdf(report) {
   doc.setFontSize(9);
   doc.text("Arbejds-ID: " + state.userId, margin, y);
   y += 5;
+  doc.text("Kategori: " + categoryLabel(report.route.category), margin, y);
+  y += 5;
   doc.text("Rute: " + report.route.name, margin, y);
   y += 5;
+  if (report.route.zoneLabel) {
+    doc.text("Zone: " + report.route.zoneLabel, margin, y);
+    y += 5;
+  }
   doc.text("Plan: " + scheduleLabel(report.route.schedule), margin, y);
   y += 5;
-  doc.text("Maskiner: " + String(report.route.machines.length), margin, y);
+  const countLabel =
+    report.route.category === "rengoring" ? "Omrader: " : "Maskiner: ";
+  doc.text(countLabel + String(report.route.machines.length), margin, y);
   y += 10;
 
   doc.setDrawColor(0);
@@ -550,18 +768,23 @@ async function generatePdf(report) {
   doc.setFontSize(9);
   doc.text("Opsummering", margin + 3, y + 6);
   doc.setFont("helvetica", "normal");
-  doc.text(
-      "OK: " +
+  const cleaning = isCleaning(report.route);
+  const sumLine = cleaning
+    ? "Udfoert: " +
+      report.ok +
+      "    Ikke aktuelt: " +
+      report.worn +
+      "    Afvigelse: " +
+      report.critical
+    : "OK: " +
       report.ok +
       "    Slidt: " +
       report.worn +
       "    Kritisk: " +
       report.critical +
       "    Markeret til udskiftning: " +
-      report.flags,
-    margin + 3,
-    y + 13
-  );
+      report.flags;
+  doc.text(sumLine, margin + 3, y + 13);
   y += 26;
 
   for (let mi = 0; mi < report.route.machines.length; mi++) {
@@ -634,7 +857,7 @@ async function generatePdf(report) {
     doc.setFontSize(7);
     doc.setTextColor(120, 120, 120);
     doc.text(
-      "Inspectra · Offline inspektion · Virksomheden ejer data",
+      "Inspectra · Tøf inspektion · Virksomheden",
       margin,
       290
     );
@@ -647,19 +870,63 @@ async function generatePdf(report) {
 }
 
 /* ── Finish ────────────────────────────────────────── */
+function canSharePdf(file) {
+  if (!navigator.share || !navigator.canShare || typeof File === "undefined") {
+    return false;
+  }
+  try {
+    const probe =
+      file ||
+      new File(["%PDF-1.0"], "probe.pdf", { type: "application/pdf" });
+    return navigator.canShare({ files: [probe] });
+  } catch (err) {
+    return false;
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () {
+    URL.revokeObjectURL(url);
+  }, 2500);
+}
+
+function reportMailParts() {
+  return {
+    subject: "Inspectra: " + state.lastReport.route.name + " – " + state.userId,
+    body: state.lastReport.lines.join("\n"),
+  };
+}
+
+function mailtoButtonLabel() {
+  return canSharePdf()
+    ? "Send via e-mail"
+    : "Send via e-mail (PDF downloades først)";
+}
+
+function setReportActionsReady(ready) {
+  const download = $("#btn-download-pdf");
+  const mailto = $("#btn-mailto");
+  const share = $("#btn-share");
+  download.disabled = !ready;
+  mailto.disabled = !ready;
+  share.disabled = !ready;
+  download.textContent = ready ? "Download PDF-rapport" : "Genererer PDF…";
+  mailto.textContent = ready ? mailtoButtonLabel() : "Forbereder…";
+}
+
 $("#btn-finish-route").addEventListener("click", () => {
+  markRouteDone(state.currentRoute);
   const report = buildReportData();
   state.lastReport = report;
-
-  const subject = "Inspectra: " + report.route.name + " – " + state.userId;
-  const body =
-    report.lines.join("\n") +
-    "\n\n---\nVedhæft den downloadede PDF-rapport til denne mail.";
-  $("#btn-mailto").href =
-    "mailto:?subject=" +
-    encodeURIComponent(subject) +
-    "&body=" +
-    encodeURIComponent(body);
+  state.lastPdf = null;
 
   const card = $("#summary-card");
   card.innerHTML = "";
@@ -679,36 +946,72 @@ $("#btn-finish-route").addEventListener("click", () => {
     card.appendChild(row);
   }
   addStat("Arbejds-ID", state.userId);
-  addStat("Maskiner", report.route.machines.length);
-  addStat("OK", report.ok);
-  addStat("Slidt", report.worn);
-  addStat("Kritisk", report.critical);
-  addStat("Markeret til udskiftning", report.flags);
+  addStat("Kategori", categoryLabel(report.route.category));
+  if (report.route.zoneLabel) addStat("Zone", report.route.zoneLabel);
+  addStat(
+    report.route.category === "rengoring" ? "Områder" : "Maskiner",
+    report.route.machines.length
+  );
+  if (isCleaning(report.route)) {
+    addStat("Udført", report.ok);
+    addStat("Ikke aktuelt", report.worn);
+    addStat("Afvigelse", report.critical);
+  } else {
+    addStat("OK", report.ok);
+    addStat("Slidt", report.worn);
+    addStat("Kritisk", report.critical);
+    addStat("Markeret til udskiftning", report.flags);
+  }
 
   const shareBtn = $("#btn-share");
-  if (navigator.canShare) shareBtn.classList.remove("hidden");
+  if (navigator.share) shareBtn.classList.remove("hidden");
   else shareBtn.classList.add("hidden");
 
   showView("view-finish");
+  setReportActionsReady(false);
+
+  buildPdfFile()
+    .then((result) => {
+      state.lastPdf = result;
+      setReportActionsReady(true);
+    })
+    .catch((err) => {
+      console.error(err);
+      setReportActionsReady(true);
+      $("#btn-mailto").disabled = true;
+      $("#btn-share").disabled = true;
+      alert("Kunne ikke generere PDF. " + (err.message || "Prøv igen."));
+    });
 });
 
 async function buildPdfFile() {
   const doc = await generatePdf(state.lastReport);
   const blob = doc.output("blob");
-  const file = new File([blob], state.lastReport.filename, {
-    type: "application/pdf",
-  });
+  let file = null;
+  try {
+    file = new File([blob], state.lastReport.filename, {
+      type: "application/pdf",
+    });
+  } catch (err) {
+    file = null;
+  }
   return { doc: doc, blob: blob, file: file };
+}
+
+async function ensurePdf() {
+  if (state.lastPdf) return state.lastPdf;
+  const result = await buildPdfFile();
+  state.lastPdf = result;
+  return result;
 }
 
 $("#btn-download-pdf").addEventListener("click", async () => {
   if (!state.lastReport) return;
   const btn = $("#btn-download-pdf");
   btn.disabled = true;
-  btn.textContent = "Genererer PDF…";
   try {
-    const result = await buildPdfFile();
-    result.doc.save(state.lastReport.filename);
+    const result = await ensurePdf();
+    downloadBlob(result.blob, state.lastReport.filename);
   } catch (err) {
     console.error(err);
     alert("Kunne ikke generere PDF. " + (err.message || "Prøv igen."));
@@ -718,65 +1021,86 @@ $("#btn-download-pdf").addEventListener("click", async () => {
   }
 });
 
-/* mailto: cannot attach files in browsers – download PDF first, then open mail */
-$("#btn-mailto").addEventListener("click", async (e) => {
-  e.preventDefault();
-  if (!state.lastReport) return;
+async function sharePdfFile(file, title, text) {
+  const full = { files: [file], title: title, text: text };
+  if (navigator.canShare(full)) {
+    await navigator.share(full);
+    return true;
+  }
+  const filesOnly = { files: [file], title: title };
+  if (navigator.canShare(filesOnly)) {
+    await navigator.share(filesOnly);
+    return true;
+  }
+  return false;
+}
 
-  const btn = $("#btn-mailto");
-  const prevText = btn.textContent;
-  btn.textContent = "Forbereder…";
+/* mailto: cannot attach files. On phones, Web Share puts the PDF in Mail. */
+$("#btn-mailto").addEventListener("click", async () => {
+  if (!state.lastReport || !state.lastPdf) return;
+
+  const mail = reportMailParts();
+  const result = state.lastPdf;
 
   try {
-    // Always download PDF so user has the file to attach
-    const result = await buildPdfFile();
-    result.doc.save(state.lastReport.filename);
+    if (result.file && canSharePdf(result.file)) {
+      const shared = await sharePdfFile(
+        result.file,
+        mail.subject,
+        mail.body
+      );
+      if (shared) return;
+    }
 
-    const subject = "Inspectra: " + state.lastReport.route.name + " – " + state.userId;
-    const body =
-      state.lastReport.lines.join("\n") +
-      "\n\n---\n" +
-      "PDF-filen \"" + state.lastReport.filename + "\" er downloadet.\n" +
-      "Vedhæft den fil til denne mail før du sender.";
-
-    // Small delay so download starts before mail client opens
-    setTimeout(() => {
-      window.location.href =
-        "mailto:?subject=" +
-        encodeURIComponent(subject) +
-        "&body=" +
-        encodeURIComponent(body);
-    }, 400);
+    downloadBlob(result.blob, state.lastReport.filename);
+    alert(
+      "PDF er gemt som \"" +
+        state.lastReport.filename +
+        "\".\nTryk OK, og vedhæft filen i mailen før du sender."
+    );
+    window.location.href =
+      "mailto:?subject=" +
+      encodeURIComponent(mail.subject) +
+      "&body=" +
+      encodeURIComponent(
+        mail.body +
+          "\n\n---\nVedhæft filen \"" +
+          state.lastReport.filename +
+          "\"."
+      );
   } catch (err) {
+    if (err && err.name === "AbortError") return;
     console.error(err);
     alert("Kunne ikke forberede rapporten. " + (err.message || ""));
-  } finally {
-    btn.textContent = prevText;
   }
 });
 
 $("#btn-share").addEventListener("click", async () => {
-  if (!state.lastReport) return;
+  if (!state.lastReport || !state.lastPdf) return;
   try {
-    const result = await buildPdfFile();
-    if (navigator.canShare && navigator.canShare({ files: [result.file] })) {
+    const result = state.lastPdf;
+    if (result.file && canSharePdf(result.file)) {
+      const shared = await sharePdfFile(
+        result.file,
+        state.lastReport.filename,
+        "Inspectra rapport: " + state.lastReport.route.name
+      );
+      if (shared) return;
+    }
+    if (navigator.share) {
+      downloadBlob(result.blob, state.lastReport.filename);
       await navigator.share({
-        files: [result.file],
         title: state.lastReport.filename,
-        text: "Inspectra rapport: " + state.lastReport.route.name,
-      });
-    } else if (navigator.share) {
-      result.doc.save(state.lastReport.filename);
-      await navigator.share({
-        title: state.lastReport.filename,
-        text: state.lastReport.lines.join("\n") + "\n\n(PDF er downloadet – vedhæft den manuelt)",
+        text:
+          state.lastReport.lines.join("\n") +
+          "\n\n(PDF er downloadet – vedhæft den manuelt)",
       });
     } else {
-      result.doc.save(state.lastReport.filename);
+      downloadBlob(result.blob, state.lastReport.filename);
       alert("PDF downloadet. Del den manuelt fra din filmappe.");
     }
   } catch (err) {
-    if (err.name !== "AbortError") console.error(err);
+    if (!err || err.name !== "AbortError") console.error(err);
   }
 });
 
@@ -784,6 +1108,7 @@ $("#btn-new-route").addEventListener("click", () => {
   state.currentRoute = null;
   state.results = {};
   state.lastReport = null;
+  state.lastPdf = null;
   renderRoutes();
   showView("view-dashboard");
 });

@@ -14,6 +14,8 @@
   --ok: #ffffff;
   --worn: #cccccc;
   --critical: #ffffff;
+  --done: #22c55e;
+  --done-bg: rgba(34, 197, 94, 0.14);
   --radius: 12px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font: "Inter", system-ui, -apple-system, sans-serif;
@@ -32,6 +34,8 @@
   --ok: #000000;
   --worn: #444444;
   --critical: #000000;
+  --done: #16a34a;
+  --done-bg: rgba(22, 163, 74, 0.12);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -137,7 +141,7 @@ input:focus, select:focus, textarea:focus {
   color: var(--primary-text);
   border-color: var(--primary);
 }
-.btn.primary:disabled { opacity: 0.35; pointer-events: none; }
+.btn:disabled { opacity: 0.35; pointer-events: none; }
 .btn.secondary {
   background: transparent;
   color: var(--text);
@@ -171,6 +175,45 @@ input:focus, select:focus, textarea:focus {
 .topbar h2 { font-size: 1.15rem; font-weight: 600; }
 .sub { font-size: 0.8rem; color: var(--text-muted); }
 .flex-1 { flex: 1; min-width: 0; }
+
+/* ── Category bar ──────────────────────────────────── */
+.category-bar {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+.category-btn {
+  flex: 1;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.category-btn.active {
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+
+.map-panel {
+  padding: 0 16px 14px;
+}
+.map-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.map-caption {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
 
 /* ── Schedule bar ──────────────────────────────────── */
 .schedule-bar {
@@ -209,6 +252,16 @@ input:focus, select:focus, textarea:focus {
   transition: border-color 0.15s;
 }
 .route-card:active { border-color: var(--text); }
+.route-card.done {
+  border-color: var(--done);
+  background: var(--done-bg);
+}
+.route-card .done-tag {
+  background: var(--done);
+  color: #000000;
+  border-color: var(--done);
+  font-weight: 700;
+}
 .route-card h3 { font-size: 1.05rem; margin-bottom: 4px; font-weight: 600; }
 .route-meta {
   display: flex;
@@ -313,22 +366,12 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
   transition: all 0.15s;
 }
-.status-btn.ok.active {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg);
-}
-.status-btn.worn.active {
-  background: transparent;
-  border-color: var(--text);
-  border-style: dashed;
-  color: var(--text);
-}
+.status-btn.ok.active,
+.status-btn.worn.active,
 .status-btn.critical.active {
   background: var(--text);
   border-color: var(--text);
   color: var(--bg);
-  font-weight: 700;
 }
 
 .note-area {
@@ -441,6 +484,22 @@ input:focus, select:focus, textarea:focus {
 .photo-preview .placeholder { color: var(--text-muted); font-size: 0.9rem; }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions .btn { flex: 1; }
+.photo-actions { flex-wrap: wrap; }
+.photo-actions .file-btn { flex: 1 1 calc(50% - 5px); }
+.photo-actions #btn-photo-done { flex: 1 1 100%; }
+.file-btn {
+  position: relative;
+  overflow: hidden;
+}
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  font-size: 16px;
+}
 .hidden { display: none !important; }
 
 @media (min-width: 481px) {

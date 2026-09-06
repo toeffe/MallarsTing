@@ -46,6 +46,14 @@
           <button type="button" id="btn-logout" class="btn ghost icon" title="Log ud">⎋</button>
         </div>
       </header>
+      <div class="category-bar" role="tablist" aria-label="Kategori">
+        <button type="button" class="category-btn active" data-category="maskiner">Maskiner</button>
+        <button type="button" class="category-btn" data-category="rengoring">Rengøring</button>
+      </div>
+      <div id="rengoring-map" class="map-panel hidden">
+        <img src="src/kort.png" alt="Plantegning – rengøringszoner" />
+        <p class="map-caption"></p>
+      </div>
       <div class="schedule-bar">
         <span class="badge">Interval</span>
         <select id="schedule-filter">
@@ -93,9 +101,9 @@
       <div class="summary-card" id="summary-card"></div>
       <div class="bottom-bar stacked">
         <button type="button" id="btn-download-pdf" class="btn primary full">Download PDF-rapport</button>
-        <a id="btn-mailto" class="btn secondary full" href="#">Send via e-mail (PDF downloades først)</a>
+        <button type="button" id="btn-mailto" class="btn secondary full">Send via e-mail</button>
         <button type="button" id="btn-share" class="btn secondary full hidden">Del PDF</button>
-        <button type="button" id="btn-new-route" class="btn ghost full">Ny rute</button>
+        <button type="button" id="btn-new-route" class="btn ghost full">Tilbage</button>
       </div>
     </section>
 
@@ -107,9 +115,15 @@
       <div class="photo-preview" id="photo-preview">
         <span class="placeholder">Intet foto</span>
       </div>
-      <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden" />
-      <div class="modal-actions">
-        <button type="button" id="btn-take-photo" class="btn secondary">Tag / vælg foto</button>
+      <div class="modal-actions photo-actions">
+        <label class="btn secondary file-btn">
+          Tag foto
+          <input class="photo-file" type="file" accept="image/*" capture="environment" />
+        </label>
+        <label class="btn secondary file-btn">
+          Vælg foto
+          <input class="photo-file" type="file" accept="image/*" />
+        </label>
         <button type="button" id="btn-photo-done" class="btn primary">Færdig</button>
       </div>
     </div>

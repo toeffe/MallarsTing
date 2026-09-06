@@ -30,8 +30,8 @@ jobs:
       - name: Prepare site
         run: |
           mkdir _site
-          cp index.html CNAME _site/
-          cp -r css js _site/
+          cp index.html builder.html CNAME _site/
+          cp -r css js src _site/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

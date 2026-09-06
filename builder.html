@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="da" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>Inspectra – Ruteværktøj</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Ctext x='16' y='22' text-anchor='middle' fill='%23fff' font-size='18' font-family='sans-serif'%3EI%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/builder.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+
+    <header id="page-header" class="topbar sticky">
+      <div class="flex-1">
+        <h2>Ruteværktøj</h2>
+        <p class="sub">Byg ruter og zoner · erstatter placeholders</p>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" id="btn-theme" class="btn ghost icon theme-toggle" title="Skift tema">◐</button>
+      </div>
+    </header>
+
+    <section id="view-list">
+      <p class="intro">Vælg Maskiner eller Rengøring, rediger listen, og download <code>data.js</code> når du er færdig. Erstat filen <code>js/data.js</code> i projektet.</p>
+      <div class="category-bar" role="tablist" aria-label="Kategori">
+        <button type="button" class="category-btn active" data-category="maskiner">Maskiner</button>
+        <button type="button" class="category-btn" data-category="rengoring">Rengøring</button>
+      </div>
+      <div id="route-list" class="route-list"></div>
+      <div class="list-actions">
+        <button type="button" id="btn-new" class="btn primary full">Ny rute</button>
+      </div>
+    </section>
+
+    <section id="view-editor" class="hidden">
+      <header class="topbar sticky editor-nav">
+        <button type="button" id="btn-back" class="btn ghost icon" title="Tilbage">←</button>
+        <div class="flex-1">
+          <h2 id="editor-title">Rediger rute</h2>
+          <p class="sub" id="editor-sub"></p>
+        </div>
+        <button type="button" id="btn-theme-editor" class="btn ghost icon theme-toggle" title="Skift tema">◐</button>
+      </header>
+      <div id="editor-body" class="editor-body"></div>
+    </section>
+
+    <div class="export-bar">
+      <p class="export-status" id="export-status"></p>
+      <div class="export-actions">
+        <button type="button" id="btn-restore" class="btn ghost small">Gendan fra data.js</button>
+        <button type="button" id="btn-copy" class="btn secondary small" disabled>Kopiér</button>
+        <button type="button" id="btn-download" class="btn primary small" disabled>Download data.js</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script type="module" src="js/builder.js"></script>
+</body>
+</html>
