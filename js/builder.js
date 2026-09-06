@@ -209,10 +209,16 @@ function renderCategoryBar() {
     const wrap = document.createElement("span");
     wrap.className = "category-btn-wrap";
 
+    const catInvalid = state.templates.some(
+      (t) => (t.category || "andet") === cat && validateTemplate(t).length
+    );
+
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "category-btn" + (state.category === cat ? " active" : "");
+    btn.className =
+      "category-btn" + (state.category === cat ? " active" : "") + (catInvalid ? " invalid" : "");
     btn.textContent = categoryLabel(cat);
+    if (catInvalid) btn.title = "Indeholder kontroller med fejl";
     btn.addEventListener("click", () => {
       state.category = cat;
       renderList();
@@ -289,8 +295,9 @@ function renderList() {
       list.appendChild(heading);
     }
 
+    const errors = validateTemplate(template);
     const card = document.createElement("div");
-    card.className = "route-card";
+    card.className = "route-card" + (errors.length ? " invalid" : "");
     card.dataset.id = template.referenceId;
 
     const h3 = document.createElement("h3");
@@ -320,6 +327,13 @@ function renderList() {
       const s4 = document.createElement("span");
       s4.textContent = template.zoneLabel;
       meta.appendChild(s4);
+    }
+    if (errors.length) {
+      const sErr = document.createElement("span");
+      sErr.className = "error-tag";
+      sErr.title = errors.join("\n");
+      sErr.textContent = errors.length + " fejl";
+      meta.appendChild(sErr);
     }
     card.appendChild(meta);
     list.appendChild(card);
@@ -368,8 +382,10 @@ function renderAnswerSetPickerHtml(field, loc) {
         `<option value="${esc(s.id)}" ${field.config.answerSetId === s.id ? "selected" : ""}>${esc(s.name)}</option>`
     )
     .join("");
+  const selectedSet = field.config.answerSetId && state.answerSets[field.config.answerSetId];
+  const setInvalid = !selectedSet || !selectedSet.options.length;
   return `
-    <div class="answerset-picker">
+    <div class="answerset-picker${setInvalid ? " invalid" : ""}">
       <select data-field-answerset="${loc}">
         <option value="">– Vælg svarmuligheder –</option>
         ${options}
@@ -419,7 +435,7 @@ function renderRowHtml(row, gIdx, pIdx, rIdx) {
   const cellsHtml = row.fields
     .map((field, fIdx) => {
       const loc = gIdx + ":" + pIdx + ":" + rIdx + ":" + fIdx;
-      if (!field) return `<button type="button" class="field-slot-empty" data-add-field="${loc}">+ Felt</button>`;
+      if (!field) return `<button type="button" class="field-slot-empty invalid" data-add-field="${loc}">+ Felt</button>`;
       return renderFieldCellHtml(field, loc);
     })
     .join("");
@@ -437,15 +453,18 @@ function renderRowHtml(row, gIdx, pIdx, rIdx) {
 function renderPointHtml(gIdx, point, pIdx) {
   const rowsHtml = point.rows.map((row, rIdx) => renderRowHtml(row, gIdx, pIdx, rIdx)).join("");
   const pointLoc = gIdx + ":" + pIdx;
+  const labelInvalid = !point.label.trim();
+  const noRows = !point.rows.length;
   return `
     <div class="point-card" data-drag-point="${pointLoc}" draggable="false">
       <div class="point-head">
         <span class="drag-handle" data-drag-handle title="Flyt kontrolpunkt">⠿</span>
-        <input type="text" data-point-label="${pointLoc}" value="${esc(point.label)}" placeholder="Kontrolpunkt-navn" />
+        <input type="text" class="${labelInvalid ? "invalid" : ""}" data-point-label="${pointLoc}" value="${esc(point.label)}" placeholder="Kontrolpunkt-navn" />
         <button type="button" class="btn ghost icon" data-dup-point="${pointLoc}" title="Dupliker">⧉</button>
         <button type="button" class="btn ghost icon" data-del-point="${pointLoc}" title="Slet">×</button>
       </div>
       ${rowsHtml}
+      ${noRows ? '<p class="intro" style="padding:4px 0;color:var(--error)">Tilføj mindst én række.</p>' : ""}
       <div class="column-picker">
         <button type="button" data-add-row="${pointLoc}:1">+ Række (1)</button>
         <button type="button" data-add-row="${pointLoc}:2">+ Række (2)</button>
@@ -456,9 +475,13 @@ function renderPointHtml(gIdx, point, pIdx) {
 
 /* ── Editor ────────────────────────────────────────────────── */
 function renderTemplateHeaderHtml(template) {
+  const dupRef = state.templates.some(
+    (t) => t !== template && t.referenceId === template.referenceId
+  );
+  const refInvalid = !template.referenceId.trim() || dupRef;
   const refField = template.publishedAt
     ? `<div class="ref-id-locked" title="Låst efter udgivelse">🔒 ${esc(template.referenceId)}</div>`
-    : `<div class="field"><label for="f-refid">Reference-ID</label><input id="f-refid" type="text" value="${esc(template.referenceId)}" placeholder="Fx AVA2-PK-001" /></div>`;
+    : `<div class="field"><label for="f-refid">Reference-ID</label><input id="f-refid" type="text" class="${refInvalid ? "invalid" : ""}" value="${esc(template.referenceId)}" placeholder="Fx AVA2-PK-001" /></div>`;
   const meta = `
     <div class="template-meta">
       <span>v${template.version}</span>
@@ -487,7 +510,7 @@ function renderGroupHtml(group, idx, template) {
         <div class="form-row-2">
           <div class="field">
             <label>Navn</label>
-            <input type="text" data-item="${idx}" data-item-field="name" value="${esc(group.name)}" placeholder="Navn på ${itemNoun(template, false)}" />
+            <input type="text" class="${group.name.trim() ? "" : "invalid"}" data-item="${idx}" data-item-field="name" value="${esc(group.name)}" placeholder="Navn på ${itemNoun(template, false)}" />
           </div>
           <div class="field">
             <label>Placering</label>
@@ -502,7 +525,7 @@ function renderGroupHtml(group, idx, template) {
         <div>
           <p class="checks-label">Kontrolpunkter</p>
           <div class="item-list">
-            ${pointsHtml || '<p class="intro" style="padding:0">Ingen kontrolpunkter endnu.</p>'}
+            ${pointsHtml || '<p class="intro" style="padding:0;color:var(--error)">Ingen kontrolpunkter endnu.</p>'}
           </div>
           <button type="button" class="btn secondary small" data-add-point="${idx}" style="margin-top:10px">+ Kontrolpunkt</button>
         </div>
@@ -539,7 +562,7 @@ function renderEditor() {
         <div class="form-row-2">
           <div class="field">
             <label for="f-name">Navn</label>
-            <input id="f-name" type="text" data-field="name" value="${esc(template.name)}" placeholder="Fx Rute 1 – Hal A" />
+            <input id="f-name" type="text" class="${template.name.trim() ? "" : "invalid"}" data-field="name" value="${esc(template.name)}" placeholder="Fx Rute 1 – Hal A" />
           </div>
           <div class="field">
             <label for="f-schedule">Interval</label>
@@ -638,7 +661,21 @@ function openTemplate(refId) {
   showEditor();
 }
 
-function backToList() {
+async function backToList() {
+  const template = currentTemplate();
+  if (template) {
+    const errors = validateTemplate(template);
+    if (errors.length) {
+      const proceed = await confirmDialog(
+        "Kontrollen har " +
+          errors.length +
+          " fejl og kan ikke eksporteres endnu:\n\n- " +
+          errors.join("\n- ") +
+          "\n\nForlad alligevel?"
+      );
+      if (!proceed) return;
+    }
+  }
   showList();
 }
 
@@ -1065,14 +1102,25 @@ function showExportPickerModal() {
     .slice()
     .sort((a, b) => (a.category || "").localeCompare(b.category || "") || a.name.localeCompare(b.name));
 
+  let currentCategory = null;
   const rowsHtml = sorted
-    .map(
-      (t) => `
-      <label class="option-row">
-        <input type="checkbox" data-export-pick="${esc(t.referenceId)}" checked />
-        <span>${esc(t.name.trim() || "Uden navn")} <span style="color:var(--text-muted)">· ${esc(categoryLabel(t.category))} · v${t.version}</span></span>
-      </label>`
-    )
+    .map((t) => {
+      const cat = t.category || "andet";
+      let headingHtml = "";
+      if (cat !== currentCategory) {
+        currentCategory = cat;
+        headingHtml = `<p class="export-category-heading">${esc(categoryLabel(cat))}</p>`;
+      }
+      const errors = validateTemplate(t);
+      const invalid = errors.length > 0;
+      return `
+      ${headingHtml}
+      <label class="option-row${invalid ? " invalid" : ""}" ${invalid ? 'title="' + esc(errors.join("\n")) + '"' : ""}>
+        <input type="checkbox" data-export-pick="${esc(t.referenceId)}" ${invalid ? "disabled" : "checked"} />
+        <span>${esc(t.name.trim() || "Uden navn")} <span style="color:var(--text-muted)">· v${t.version}</span></span>
+        ${invalid ? `<span class="error-tag">${errors.length} fejl</span>` : ""}
+      </label>`;
+    })
     .join("");
 
   body.innerHTML = `
@@ -1096,7 +1144,12 @@ function showExportPickerModal() {
   }
 
   const selectAll = $("#export-select-all");
-  if (selectAll) selectAll.addEventListener("click", () => checkboxes().forEach((cb) => (cb.checked = true)));
+  if (selectAll)
+    selectAll.addEventListener("click", () =>
+      checkboxes().forEach((cb) => {
+        if (!cb.disabled) cb.checked = true;
+      })
+    );
   const selectNone = $("#export-select-none");
   if (selectNone) selectNone.addEventListener("click", () => checkboxes().forEach((cb) => (cb.checked = false)));
 
@@ -1110,11 +1163,20 @@ function showExportPickerModal() {
       return;
     }
     const picked = sorted.filter((t) => pickedIds.includes(t.referenceId));
-    const invalid = picked.filter((t) => validateTemplate(t).length);
+    const invalid = picked
+      .map((t) => ({ template: t, errors: validateTemplate(t) }))
+      .filter((entry) => entry.errors.length);
     if (invalid.length) {
       await alertDialog(
-        "Kan ikke eksportere - følgende har fejl:\n- " +
-          invalid.map((t) => t.name.trim() || t.referenceId).join("\n- ")
+        "Kan ikke eksportere - følgende har fejl:\n\n" +
+          invalid
+            .map(
+              (entry) =>
+                (entry.template.name.trim() || entry.template.referenceId) +
+                ":\n  - " +
+                entry.errors.join("\n  - ")
+            )
+            .join("\n\n")
       );
       return;
     }

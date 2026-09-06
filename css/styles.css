@@ -16,6 +16,8 @@
   --critical: #ffffff;
   --done: #22c55e;
   --done-bg: rgba(34, 197, 94, 0.14);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.14);
   --radius: 12px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font: "Inter", system-ui, -apple-system, sans-serif;
@@ -36,6 +38,8 @@
   --critical: #000000;
   --done: #16a34a;
   --done-bg: rgba(22, 163, 74, 0.12);
+  --error: #dc2626;
+  --error-bg: rgba(220, 38, 38, 0.1);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -200,6 +204,15 @@ input:focus, select:focus, textarea:focus {
   color: var(--primary-text);
   border-color: var(--primary);
 }
+.category-btn.invalid {
+  border-color: var(--error);
+  color: var(--error);
+}
+.category-btn.invalid.active {
+  background: var(--error);
+  color: #ffffff;
+  border-color: var(--error);
+}
 .category-bar-scroll {
   flex-wrap: nowrap;
   overflow-x: auto;
@@ -325,6 +338,16 @@ input:focus, select:focus, textarea:focus {
   background: var(--done);
   color: #000000;
   border-color: var(--done);
+  font-weight: 700;
+}
+.route-card.invalid {
+  border-color: var(--error);
+  background: var(--error-bg);
+}
+.route-card .error-tag {
+  background: var(--error);
+  color: #ffffff;
+  border-color: var(--error);
   font-weight: 700;
 }
 .route-card h3 { font-size: 1.05rem; margin-bottom: 4px; font-weight: 600; }
