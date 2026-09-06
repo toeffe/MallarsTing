@@ -25,7 +25,7 @@ Statisk smartphone-app til ruteinspektion og rengøring. Kører uden backend –
 
 ### Maskiner
 
-- **Slidt** og **Kritisk** kræver foto + bemærkning
+- **OK**, **Slidt** og **Kritisk** kræver foto + bemærkning
 - **Kritisk** kan markeres til udskiftning
 - Progress: `x / y maskiner`
 

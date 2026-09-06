@@ -108,11 +108,16 @@ function markRouteDone(route) {
 }
 
 function needsPhoto(status) {
-  return status === STATUS.WORN || status === STATUS.CRITICAL;
+  return (
+    status === STATUS.OK ||
+    status === STATUS.WORN ||
+    status === STATUS.CRITICAL
+  );
 }
 
 function needsNote(status) {
   return (
+    status === STATUS.OK ||
     status === STATUS.WORN ||
     status === STATUS.CRITICAL ||
     status === STATUS.ISSUE
