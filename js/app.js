@@ -1,4 +1,4 @@
-import { $, $$, clone, downloadBlob, canSharePdf, sharePdfFile } from "./util.js";
+import { $, $$, clone, downloadBlob, canSharePdf, sharePdfFile, enableDragScroll } from "./util.js";
 import { initTheme } from "./theme.js";
 import * as store from "./store.js";
 import { ensureTemplatesInstalled } from "./migrate.js";
@@ -283,6 +283,7 @@ function templateCategories() {
 
 function renderCategoryBar() {
   const bar = $("#category-bar");
+  enableDragScroll(bar);
   bar.innerHTML = "";
   const cats = templateCategories();
   if (!cats.includes(state.categoryFilter)) {
@@ -302,6 +303,8 @@ function renderCategoryBar() {
   });
   const mapPanel = $("#rengoring-map");
   if (mapPanel) mapPanel.classList.toggle("hidden", state.categoryFilter !== "rengoring");
+
+  bar.classList.toggle("fits", bar.scrollWidth <= bar.clientWidth + 1);
 }
 
 const SCHEDULE_ORDER = ["daily", "weekly", "monthly", "yearly"];

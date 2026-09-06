@@ -200,6 +200,37 @@ input:focus, select:focus, textarea:focus {
   color: var(--primary-text);
   border-color: var(--primary);
 }
+.category-bar-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+  padding: 0 16px 4px;
+  margin-bottom: 12px;
+  cursor: grab;
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+.category-bar-scroll:active { cursor: grabbing; }
+.category-bar-scroll.dragging {
+  scroll-snap-type: none;
+  scroll-behavior: auto;
+  user-select: none;
+}
+.category-bar-scroll.dragging .category-btn { pointer-events: none; }
+.category-bar-scroll::-webkit-scrollbar { display: none; }
+.category-bar-scroll.fits { cursor: default; }
+.category-bar-scroll.fits .category-btn { flex: 1 1 0; }
+.category-bar-scroll .category-btn {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
 .category-btn-wrap {
   position: relative;
   display: inline-flex;
