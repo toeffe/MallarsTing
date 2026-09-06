@@ -187,6 +187,7 @@ function templateCategories() {
   const set = new Set(state.templates.map((t) => t.category || "andet"));
   set.add("maskiner");
   set.add("rengoring");
+  if (state.category) set.add(state.category);
   const order = ["maskiner", "rengoring"];
   const list = Array.from(set);
   list.sort((a, b) => {
