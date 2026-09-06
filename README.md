@@ -8,11 +8,11 @@ Statisk web-app til at bygge og udføre digitale kontroller. Kører uden backend
 
 **Live:** [kontrol.toeffe.uk](https://kontrol.toeffe.uk)
 
-Mallars Ting leveres med indbyggede **Maskiner**- og **Rengøring**-kontroller genereret fra [`src/data.js`](src/data.js). Referencefotos ligger som filer under `src/` (ikke base64).
+Appen leveres med indbyggede **Maskiner**- og **Rengøring**-kontroller. Referencefotos ligger som filer under `src/`.
 
 ## Grundprincip
 
-En kontrolskabelon (**Kontrol**) bygges frit i [builder.html](builder.html): egne felter, egne svarmuligheder, eget layout. Skabelonen eksporteres som en `.inspectra`-fil og importeres på den enhed, der skal udføre kontrollen ([index.html](index.html)) – typisk PC bygger, telefon/tablet udfører. Enhederne behøver ikke kende hinanden.
+En kontrolskabelon (**Kontrol**) bygges i [builder.html](builder.html): egne felter, egne svarmuligheder, eget layout. Skabelonen eksporteres som en `.inspectra`-fil og importeres på den enhed, der skal udføre kontrollen ([index.html](index.html)) – typisk PC bygger, telefon/tablet udfører. Enhederne behøver ikke kende hinanden.
 
 ```
 PC (builder.html)                 Telefon/tablet (index.html)
@@ -45,9 +45,9 @@ Row
   fields: Field[]
 ```
 
-Svarmuligheder er aldrig hardcodet: et **AnswerSet** er et navngivet, genbrugeligt sæt af muligheder (fx "Tilstand": OK/Slidt/Kritisk), som Enkeltvalg-, Checkbokse- og Dropdown-felter peger på.
+Svarmuligheder er aldrig hardcodet: et **AnswerSet** er et navngivet, genbrugeligt sæt (fx "Tilstand": OK/Slidt/Kritisk), som Enkeltvalg-, Checkbokse- og Dropdown-felter peger på.
 
-Builtin Mallars-kontroller bruger `executionView: "begge"`, så både **Oversigt** og **Punktvisning** (ét kontrolpunkt ad gangen) virker. Standardvisningen på telefonen er Punktvisning.
+De indbyggede kontroller bruger `executionView: "begge"`, så både **Oversigt** og **Punktvisning** virker. Standardvisningen er Punktvisning (ét kontrolpunkt ad gangen).
 
 ### Felttyper
 
@@ -66,18 +66,13 @@ Builtin Mallars-kontroller bruger `executionView: "begge"`, så både **Oversigt
 | `reference_image` | Referencebillede | Sat ved opbygning, skrivebeskyttet ved udførelse |
 | `signature` | Signatur | Frihånds-underskrift på canvas |
 
-Hvert felt kan markeres **påkrævet**. Maskiner-seedet kræver kommentar + foto på hvert punkt; Rengøring-seedet kræver status, foto er valgfrit.
+Hvert felt kan markeres **påkrævet**. Maskiner-kontrollerne kræver kommentar + foto på hvert punkt; Rengøring kræver status, foto er valgfrit.
 
-## Builtin seed (Mallars Ting)
+## Indbyggede kontroller
 
-Første load uden installerede skabeloner kører `ensureTemplatesInstalled()`:
+Første load uden installerede skabeloner installerer [`js/seed-templates.js`](js/seed-templates.js) (Maskiner + Rengøring).
 
-1. Hvis `inspectra_builder_draft` findes (gammelt ruteværktøj) → konverter ruterne, slet udkastet
-2. Ellers installer [`js/seed-templates.js`](js/seed-templates.js)
-
-Seedet er `ROUTES` fra [`src/data.js`](src/data.js) kørt gennem `convertLegacyRoute` (`js/migrate.js`). IDs som `rute-1-produktionshal-a` bevares som `referenceId`, så gamle `inspectra_done`-badges stadig matcher.
-
-Efter ændring af `src/data.js`:
+Kilden er [`src/data.js`](src/data.js). Efter ændring:
 
 ```bash
 node scripts/gen-seed.mjs
@@ -90,41 +85,40 @@ Referencefotos: `src/pakkemaskine-a1*.jpg`, `src/highlight*.png` / `.jpg`, `src/
 1. Åbn [builder.html](builder.html) (live: [kontrol.toeffe.uk/builder.html](https://kontrol.toeffe.uk/builder.html)).
 2. Opret en kontrol, tilføj grupper (maskiner/områder) og kontrolpunkter.
 3. Byg hvert kontrolpunkts layout: tilføj rækker (1–3 kolonner), placér felter, sæt svarmuligheder op.
-4. **Eksportér .inspectra** – dette øger versionsnummeret og downloader `{referenceId}_v{version}.inspectra`. Reference-ID låses efter første eksport.
-5. Overfør filen til målenheden og **importér** den i [index.html](index.html)'s dashboard.
+4. **Eksportér .inspectra** – øger versionsnummeret og downloader `{referenceId}_v{version}.inspectra`. Reference-ID låses efter første eksport.
+5. Overfør filen til målenheden og **importér** den i [index.html](index.html).
 
-Findes Reference-ID'et allerede på enheden, vises version-sammenligning og et **Opdater kontrol**-valg. Allerede gennemførte kontroller (historik) påvirkes aldrig af en opdatering – de gemmer et snapshot af den skabelon, de blev udført med.
+Findes Reference-ID'et allerede, vises version-sammenligning og **Opdater kontrol**. Gennemførte kontroller i historikken påvirkes ikke – de gemmer et snapshot af den skabelon, de blev udført med.
 
 ## Udfør en kontrol
 
 1. **Log ind** – Arbejds-ID (gemmes i `localStorage`)
 2. **Vælg kategori og kontrol** på dashboardet
-3. **Gennemgå grupper og kontrolpunkter** – Oversigt, Punktvisning (ét ad gangen), eller Begge (skift undervejs)
-4. **Afslut gruppe** når alle påkrævede felter er udfyldt, derefter **Afslut kontrol**
-5. **Historik** gemmer resultatet permanent; **PDF** genereres on-demand (også fra historik)
+3. **Gennemgå kontrolpunkter** – svar gemmes løbende
+   - **Punktvisning:** **Forrige** / **Næste** i bundlinjen. Næste går videre til næste punkt og næste gruppe. Sidste punkt bliver **Afslut**, når alt er udfyldt.
+   - **Oversigt:** alle punkter på én side. **←** tilbage til gruppelisten.
+4. **Afslut** gemmer i historik; **PDF** genereres on-demand (også fra historik)
 
 ## Historik
 
-Hver gennemført kontrol gemmes med et fuldt snapshot af den anvendte skabelon plus alle svar, fotos og signatur. En senere opdatering af skabelonen ændrer aldrig en tidligere gemt kontrol. PDF'en genereres fra snapshottet.
+Hver gennemført kontrol gemmes med et fuldt snapshot af skabelonen plus svar, fotos og signatur. En senere opdatering af skabelonen ændrer aldrig en tidligere gemt kontrol. PDF'en genereres fra snapshottet.
 
 ## Auto-update
 
-Efter hver Pages-deploy skrives `_site/version.json` med git SHA (10 tegn) + UTC-tid. Åbne telefoner poller hvert 5. minut og ved fokus, og viser **Ny version klar / Genindlæs**.
+Efter hver Pages-deploy skrives `_site/version.json` med git SHA (10 tegn) + UTC-tid. Åbne telefoner tjekker hvert 5. minut og ved fokus, og viser **Ny version klar / Genindlæs**.
 
 ## localStorage-nøgler
 
 | Nøgle | Indhold |
 |---|---|
-| `inspectra_templates` | `{ referenceId: Template }` – alle installerede kontroller |
-| `inspectra_answersets` | `{ id: AnswerSet }` – delt bibliotek af svarmuligheder |
+| `inspectra_templates` | `{ referenceId: Template }` – installerede kontroller |
+| `inspectra_answersets` | `{ id: AnswerSet }` – svarmuligheder |
 | `inspectra_history` | `{ id: HistoryEntry }` – gennemførte kontroller med snapshot |
-| `inspectra_done` | `{ userId: { referenceId: { period, at } } }` – "udført denne periode"-badge |
+| `inspectra_done` | `{ userId: { referenceId: { period, at } } }` – "udført denne periode" |
 | `inspectra_user` | Arbejds-ID |
 | `inspectra_theme` | `dark` / `light` |
 | `inspectra_category_filter` | Sidst valgte kategori-fane |
 | `inspectra_view_pref` | Sidst valgte Oversigt/Punktvisning ved "Begge" |
-
-`inspectra_builder_draft` er det gamle ruteværktøjs udkast. Første load konverterer det og sletter nøglen.
 
 ## Installér som app (iPhone/Android)
 
@@ -140,14 +134,14 @@ Kun sort / hvid (+ grøn til **Udført**). Skift mørk ↔ lys (gemmes). Første
 ## Projektstruktur
 
 ```
-index.html              # Udførelse: dashboard, gruppe/punkt-visning, PDF, historik
-builder.html            # Kontrolværktøj: skabelon-, felt- og svarmuligheds-editor
-manifest.json           # Web App Manifest for index.html
-manifest-builder.json   # Web App Manifest for builder.html
+index.html              # Udførelse: dashboard, punktvisning, PDF, historik
+builder.html            # Kontrolværktøj
+manifest.json           # Web App Manifest (Inspectra)
+manifest-builder.json   # Web App Manifest (Inspectra Byg)
 version.json            # Lokal stub; Pages overskriver med SHA ved deploy
 src/icons/              # App-ikoner
-src/data.js             # Seed-kilde (legacy ROUTES) — regenerér seed efter ændring
-src/*.jpg               # Referencefotos til kontrolpunkter
+src/data.js             # Kilde til indbyggede kontroller
+src/*.jpg               # Referencefotos
 src/kort.png            # Plantegning (Rengøring)
 css/styles.css
 css/builder.css
@@ -157,8 +151,8 @@ js/fields.js
 js/signature.js
 js/store.js
 js/inspectra-io.js
-js/migrate.js           # convertLegacyRoute + ensureTemplatesInstalled
-js/seed-templates.js    # Builtin Maskiner + Rengøring (genereret)
+js/migrate.js           # Installerer indbyggede skabeloner ved første load
+js/seed-templates.js    # Maskiner + Rengøring (genereret)
 js/update-checker.js    # Poller version.json
 js/util.js
 js/theme.js
@@ -186,4 +180,4 @@ Push til `main` kører [`.github/workflows/pages.yml`](.github/workflows/pages.y
 
 ## Ikke i denne version
 
-Ingen Inspectra-cloud, central brugerkonto, live synkronisering, service worker, web-dashboard, avanceret statistik, eller central administration af kundens enheder.
+Ingen cloud, central brugerkonto, live synkronisering, service worker, web-dashboard, avanceret statistik, eller central administration af enheder.
