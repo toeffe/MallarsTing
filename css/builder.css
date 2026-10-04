@@ -20,6 +20,9 @@
 
 .list-actions {
   padding: 4px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .editor-nav {
@@ -107,8 +110,16 @@
   white-space: nowrap;
 }
 .item-title.empty {
-  color: var(--text-muted);
+  color: var(--error);
   font-weight: 500;
+}
+
+input.invalid,
+select.invalid,
+textarea.invalid,
+.field-slot-empty.invalid,
+.answerset-picker.invalid select {
+  border-color: var(--error) !important;
 }
 .item-tools {
   display: flex;
@@ -504,6 +515,29 @@ body.dragging-active * {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+.export-category-heading {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+}
+.export-category-heading:first-child { margin-top: 0; }
+.answerset-editor .option-row.invalid {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.answerset-editor .option-row.invalid .error-tag {
+  margin-left: auto;
+  background: var(--error);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 .answerset-editor .option-row input[type="text"] { flex: 1; min-width: 0; }
 .answerset-picker {

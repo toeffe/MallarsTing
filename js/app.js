@@ -1,4 +1,4 @@
-import { $, $$, clone, downloadBlob, canSharePdf, sharePdfFile } from "./util.js";
+import { $, $$, clone, downloadBlob, canSharePdf, sharePdfFile, enableDragScroll } from "./util.js";
 import { initTheme } from "./theme.js";
 import * as store from "./store.js";
 import { ensureTemplatesInstalled } from "./migrate.js";
@@ -283,6 +283,7 @@ function templateCategories() {
 
 function renderCategoryBar() {
   const bar = $("#category-bar");
+  enableDragScroll(bar);
   bar.innerHTML = "";
   const cats = templateCategories();
   if (!cats.includes(state.categoryFilter)) {
@@ -302,6 +303,58 @@ function renderCategoryBar() {
   });
   const mapPanel = $("#rengoring-map");
   if (mapPanel) mapPanel.classList.toggle("hidden", state.categoryFilter !== "rengoring");
+
+  bar.classList.toggle("fits", bar.scrollWidth <= bar.clientWidth + 1);
+}
+
+const SCHEDULE_ORDER = ["daily", "weekly", "monthly", "yearly"];
+
+function scheduleSortIndex(schedule) {
+  const i = SCHEDULE_ORDER.indexOf(schedule);
+  return i === -1 ? SCHEDULE_ORDER.length : i;
+}
+
+function buildRouteCard(template) {
+  const card = document.createElement("div");
+  const done = isTemplateDone(template);
+  card.className = "route-card" + (done ? " done" : "");
+
+  const h3 = document.createElement("h3");
+  h3.textContent = template.name;
+  card.appendChild(h3);
+
+  const desc = document.createElement("p");
+  desc.style.cssText = "font-size:0.85rem;color:var(--text-muted)";
+  desc.textContent = template.description;
+  card.appendChild(desc);
+
+  const meta = document.createElement("div");
+  meta.className = "route-meta";
+  const s1 = document.createElement("span");
+  s1.textContent = template.groups.length + " " + itemNoun(template, true);
+  const s2 = document.createElement("span");
+  s2.className = "sched-tag";
+  s2.textContent = scheduleLabel(template.schedule);
+  meta.appendChild(s1);
+  meta.appendChild(s2);
+  if (template.zoneLabel) {
+    const s3 = document.createElement("span");
+    s3.textContent = template.zoneLabel;
+    meta.appendChild(s3);
+  }
+  const s4 = document.createElement("span");
+  s4.textContent = "v" + template.version;
+  meta.appendChild(s4);
+  if (done) {
+    const sDone = document.createElement("span");
+    sDone.className = "done-tag";
+    sDone.textContent = "Udført";
+    meta.appendChild(sDone);
+  }
+  card.appendChild(meta);
+
+  card.addEventListener("click", () => startTemplate(template));
+  return card;
 }
 
 function renderDashboard() {
@@ -325,47 +378,25 @@ function renderDashboard() {
     return;
   }
 
+  if (filter === "all") {
+    filtered.sort((a, b) => scheduleSortIndex(a.schedule) - scheduleSortIndex(b.schedule));
+
+    let currentSchedule = null;
+    filtered.forEach((template) => {
+      if (template.schedule !== currentSchedule) {
+        currentSchedule = template.schedule;
+        const heading = document.createElement("h4");
+        heading.className = "route-group-heading";
+        heading.textContent = scheduleLabel(currentSchedule);
+        list.appendChild(heading);
+      }
+      list.appendChild(buildRouteCard(template));
+    });
+    return;
+  }
+
   filtered.forEach((template) => {
-    const card = document.createElement("div");
-    const done = isTemplateDone(template);
-    card.className = "route-card" + (done ? " done" : "");
-
-    const h3 = document.createElement("h3");
-    h3.textContent = template.name;
-    card.appendChild(h3);
-
-    const desc = document.createElement("p");
-    desc.style.cssText = "font-size:0.85rem;color:var(--text-muted)";
-    desc.textContent = template.description;
-    card.appendChild(desc);
-
-    const meta = document.createElement("div");
-    meta.className = "route-meta";
-    const s1 = document.createElement("span");
-    s1.textContent = template.groups.length + " " + itemNoun(template, true);
-    const s2 = document.createElement("span");
-    s2.className = "sched-tag";
-    s2.textContent = scheduleLabel(template.schedule);
-    meta.appendChild(s1);
-    meta.appendChild(s2);
-    if (template.zoneLabel) {
-      const s3 = document.createElement("span");
-      s3.textContent = template.zoneLabel;
-      meta.appendChild(s3);
-    }
-    const s4 = document.createElement("span");
-    s4.textContent = "v" + template.version;
-    meta.appendChild(s4);
-    if (done) {
-      const sDone = document.createElement("span");
-      sDone.className = "done-tag";
-      sDone.textContent = "Udført";
-      meta.appendChild(sDone);
-    }
-    card.appendChild(meta);
-
-    card.addEventListener("click", () => startTemplate(template));
-    list.appendChild(card);
+    list.appendChild(buildRouteCard(template));
   });
 }
 
